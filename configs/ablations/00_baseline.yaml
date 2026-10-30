@@ -1,0 +1,76 @@
+# Matched baseline; common stop after epoch index 199.
+# All other settings match 00_baseline.yaml. Train from scratch.
+seed: 42
+device: cuda
+output_root: /leonardo_scratch/large/userexternal/xzhang01/Cinema_output/mra_sdf_only
+run_name: ablation_00_baseline
+resume: null
+data:
+  tsv: /leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv
+  subject_ids: null # optional YAML list of IDs; otherwise all valid metadata rows
+  max_subjects: null
+  world_bbox_mm: [240, 240, 120]
+  age_range: [19, 87]
+  sex_categories: [M, F]
+  condition_scale: 0.05
+  intensity_normalization: preserve_unit_or_percentile
+  intensity_percentile: 99.9
+  cache_subjects: 1
+  num_workers: 2
+sampling:
+  mra:
+    points: 250000
+    fractions: {uniform: 0.7, bright: 0.3}
+    bright_quantile: 0.9 # quantile of positive intensities; no anatomical mask
+  sdf:
+    points: 250000
+    surface_band_mm: 2.0
+    fractions: {surface: 0.5, interior: 0.25, outside: 0.25}
+sdf:
+  truncation_mm: 5.0
+  sign_convention: negative_inside
+  distance_units: mm
+model:
+  latent_shape: [256, 3, 3, 3]
+  latent_std: 0.01
+  hidden_size: 1024
+  hidden_layers: 5
+  modulated_layers: [1, 3, 5]
+  omega_first: 30.0
+  omega_hidden: 30.0
+  convolution_kernel: 3
+  use_moe: true
+  num_experts: 4
+  moe_k: 2
+  rigid: true
+  mra_activation: linear # optional sigmoid; exports never apply spatial masks
+loss:
+  mra_weight: 1.0
+  sdf_weight: 0.1
+  moe_weight: 0.01
+  tf_weight: 0.0
+  mra_metric: l1
+  sdf_metric: l1
+optimizer:
+  lr_model: 0.0001
+  lr_latent: 0.0005
+  lr_transform: 0.0001
+  weight_decay: 0.0
+  scheduler_epochs: 1000 # independent of short-run stopping
+  eta_min: 0.000025
+training:
+  epochs: 1000
+  subjects_per_rank: 5 # four GPUs -> 20 subjects per distributed batch
+  task_points_per_step: 25000 # EACH task, EACH rank; separate slices/masks
+  checkpoint_every: 10
+  atlas_every: 10
+  max_steps: null # global optimizer-step limit; smoke tests only
+  stop_after_epoch: 199 # inclusive epoch, without changing scheduler horizon
+  gradient_diagnostics_every: 0
+atlas:
+  age: 20.0
+  sex: M
+  spacing_mm: [1, 1, 1]
+  gaussian_span_years: 5.0
+  max_subjects: 100
+  chunk_size: 20000
