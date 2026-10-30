@@ -1,6 +1,6 @@
 # Conversation context and restart point
 
-Last updated: 2026-10-30.
+Last updated: 2026-10-30 (Phase 0a/0b).
 
 ## Current decision (overrides historical baseline comparisons below)
 
@@ -457,7 +457,7 @@ after each phase; wait for confirmation. Pilot Slurm budget without asking:
 <=1 node, <=4 GPUs, <=4 h/job, <=2 jobs at once, <=32 GPU-h/phase; outputs only
 under `<output_root>/claude_pilots/<date>_<name>/`. Full runs need approval.
 
-### Phase 0 (in progress; waiting for checkpoint)
+### Phase 0 (0a, 0b done; 0c waiting for checkpoint)
 
 User answers: will copy the Leonardo 552-subject 02_sdf_only checkpoint
 (`checkpoint_step_00262200.pt`, SHA256 6f7c52af…) to helix for fitting
@@ -504,6 +504,91 @@ centreline recall by radius bin, mean-latent atlas at 1 mm and 0.5 mm.
 Cluster notes: QoS `dev` = 2 h, 8 GPUs/128 CPU per user; h200 queue estimated
 multi-day waits on 2026-10-30, l40s started within minutes.
 
+### Phase 0a: graph–mask correspondence (done 2026-10-30; job 46230, CPU)
+
+User's consolidated plan (2026-10-30) supersedes earlier prompts: inputs are SDF +
+graph only (no MRA anywhere, Phase 1), binary masks without anatomical labels,
+graphs are genuinely imperfect (fragments, extra loops) and must not be "fixed";
+connectivity is always judged relative to the subject's reference. Phases 0–5,
+stop and report after each. Reference loader: `reference/graph_store.py` (user
+copy, identical to `VATL_MM/data_loading/graph_store.py`; untracked).
+
+Script `analysis/phase0_graph/correspondence.py` (modes headers / conventions /
+stats / qc), launcher `slurm/graph_correspondence.sh`, convention module
+`mra_sdf_only/graph_coords.py`, tests `tests/test_graph_coords.py` (8 pass, CPU).
+Outputs: `claude_pilots/20261030_graph_correspondence/`.
+
+Verified facts:
+- Pickle: dict {graph, node_radius_map, voxel_sizes (0.7999918 iso), input_file
+  (`/home/cazzolla/.../IXI_graphs/_bin_masks/<id>-Mask.nii.gz`, not on helix)};
+  g.graph = {}; node attrs pos, radius (+ contraction on ~1–10 merged nodes);
+  edge attr weight = length. No affine stored. Generator script NOT found (searched
+  /users/zhangx, data root, VATL_MM/VATL_SDF history); its exact regrid is unknown.
+- Headers (552): mask, SDF, MRA share shape and sform exactly (sform code 2;
+  qform code 1 for mask/SDF, 0 for MRA; qform = sform within 1.5e-5). Grids are
+  anisotropic 0.9375×0.9375×0.8 mm (some 1.0547×1.0547×0.8), oblique ~7°.
+- The "mask" file is MULTI-LABEL (0–10; labels 3/4 have ~0.5–0.8 M voxels, i.e.
+  tissue classes). Vessel = label 1; `SDF < 0 == label 1` exactly in all 552.
+  Only label 1 is used anywhere. (User says masks are binary — to confirm.)
+- Convention: the reference convention is correct: pos = world mm, voxel =
+  inv(sform of segmentation) @ pos, integer index = voxel centre, nearest voxel =
+  round. 5 subjects, nearest-voxel inside fraction (all / floor): current
+  0.887/0.860; qform identical; every ±0.5-voxel shift worse (best 0.895/0.872 for
+  −0.5 j only); flips, permutations, index or index×spacing interpretations
+  0–5%. Per-subject optimal global translations (grid search ±1 mm) reach
+  0.95–0.96/0.93–0.96 but are inconsistent across subjects ([−.3,−.3,0],
+  [0,−.3,.1], [−.2,.1,0], [0,−.4,0], [−.1,−.1,0] mm) and overfit by search:
+  NOT adopted. Inside floor nodes have mean offset ≈0 to the nearest mask voxel
+  (std 0.28 voxel = uniform), so there is no global shift.
+- Why thin nodes miss: nodes are sub-voxel points on the graph's 0.8 mm grid;
+  misses are in-plane (i, j, where 0.9375 ≠ 0.8), ~10% in k (0.8 on both). Distance
+  to the voxelized mask (union of voxel boxes): floor-outside median 0.08 mm, p95
+  0.32 mm (552 subjects); 99.8–99.95% of nodes within 0.40 mm = half a graph voxel;
+  max 0.57 mm; ≤0.3% of nodes >0.5 mm, none >1 mm. Re-gridding hypotheses
+  (same-rotation 0.8 mm origin/corner aligned, order 0/1; nibabel
+  resample_to_output order 0/1/3) do not contain the nodes or reproduce their
+  lattice. Hypothesis (unverified without the generator): extraction on a 0.8 mm
+  in-plane regrid whose phase differs from the native grid.
+- Earlier "21% of floor nodes outside" stands roughly (552 subjects: floor
+  inside median 0.892, 5–95% 0.79–0.96), but it is a ≤0.4 mm sub-voxel
+  discretization effect, not misalignment.
+- Radius: mm, scale_to_mm = 1. radius/0.8 = sqrt(k) exactly (EDT on the 0.8 mm
+  grid); matches the native mask's interior EDT in mm (ratio 0.92–1.07). The 0.8
+  floor = one graph voxel, the minimum EDT any foreground voxel can have; a
+  one-voxel-thick vessel's true radius is ≈0.4–0.47 mm, so floor radii
+  overestimate thin vessels ~2× (reference SDF + r at floor nodes median +0.28 mm).
+- Inside fraction by radius (552, medians): floor 0.892, 0.9–1.2 mm 0.995,
+  1.2–1.6 mm 1.000, ≥1.6 mm 1.000. SDF + r median: 0.13 / 0.17 / 0.17 mm.
+
+Implications for Phase 2 (proposal, needs user decision): "mask-supported" with
+the strict nearest-voxel rule drops ~11% of floor nodes that are within 0.4 mm of
+the mask; a tolerance of 0.4 mm (MaskDistance.distance <= 0.4) keeps 99.8%.
+
+### Phase 0b: graph imperfection vs mask (done; job 46230; descriptive only)
+
+`graph_mask_stats.tsv` (per subject) and `loops.tsv` (per loop). Medians (5–95%):
+- Mask 26-components 93.5 (15–397); largest 0.84 of voxels (0.66–0.97); most
+  are tiny: 1 voxel 25.5, 2–9 voxels 34, 10–99 voxels 25, ≥100 voxels 5.
+- Graph components 51 (26–122); largest 0.68 of nodes (0.45–0.88), 0.69 of length.
+  No single-node pieces; 2–4 nodes 1; 5–19 nodes 35; ≥20 nodes 15; median piece
+  9.8 mm.
+- Every graph component lies within exactly one mask component (all 552; nodes
+  snapped ≤1 mm, none needed >1 mm). Zero edges join two mask components: the
+  graph never bridges separate mask pieces.
+- Graph fragments inside connected mask: 17 graph pieces in the largest mask
+  component (8–44); mask components with ≥2 graph pieces 5. Mask components
+  without any node 60 (5–307) holding 1.1% of mask voxels (0.1–10%).
+- Edges with an endpoint outside the mask (nearest voxel) 597 per subject — Phase
+  2 edge filtering on strict inside would drop many thin-vessel edges.
+- Loops (approximate minimum cycle basis; found = cycle rank in 550/552):
+  35 per subject; short (<5 mm) 3, long 31; loop length median 20.6 mm.
+  Short loops: max radius 0.8 mm, median 50% of nodes inside the mask (likely
+  touching/one-voxel artefacts, hypothesis). Long loops: median max radius
+  1.13 mm, 95% nodes inside. Every loop lies within one mask component.
+  5 mm threshold is arbitrary; per-loop lengths are saved.
+
+### Phase 0c: checkpoint diagnostics — pending (checkpoint not yet on helix)
+
 ### Claude-submitted jobs
 
 | Job | Purpose | Overrides | Output | GPU-h | Outcome |
@@ -511,3 +596,4 @@ multi-day waits on 2026-10-30, l40s started within minutes.
 | 46211 | graph inspection (CPU) | -p l40s | claude_pilots/20261030_graph_inspect | 0 | FAILED 0 s: environment.sh exit 127 |
 | 46212 | environment test (CPU) | -p l40s, dev | same dir, envtest_46212.log | 0 | COMPLETED, diagnosed 46211 |
 | 46213 | graph inspection, 552 subjects (CPU) | -p l40s | claude_pilots/20261030_graph_inspect | 0 | COMPLETED 3 min |
+| 46230 | Phase 0a/0b correspondence + stats, 552 subjects (CPU) | -p l40s, dev, 16 CPU | claude_pilots/20261030_graph_correspondence | 0 | COMPLETED 4 min 49 s |

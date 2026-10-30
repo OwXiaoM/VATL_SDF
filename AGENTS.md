@@ -18,9 +18,11 @@ run, with unchanged SDF-only training hyperparameters. No jobs were submitted.
 
 ## Active programme (2026-10-30)
 
-Phased SDF-only refactor / skeleton supervision / probabilistic atlas; see the
+Consolidated plan (SDF + graph only, no MRA intensity; Phases 0–5); see the
 last section of `CONTEXT.md` for phase status, Slurm budget rules and the job
-table. Report and wait for confirmation after each phase.
+table. Report and wait for confirmation after each phase. Graph/mask coordinate
+convention lives in `mra_sdf_only/graph_coords.py` (verified Phase 0a); vessel =
+label 1 of the multi-label segmentation file; graph radius is already mm.
 
 ## Working conventions
 
