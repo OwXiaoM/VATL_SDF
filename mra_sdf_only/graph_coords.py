@@ -15,6 +15,9 @@ Thin vessels: graph nodes are sub-voxel points extracted on a 0.8 mm regrid, whi
 mask grid is 0.9375 x 0.9375 x 0.8 mm. About 11% of floor-radius nodes fall in a
 background voxel next to a one-voxel-thick vessel, yet 99.8% of all nodes lie within
 0.4 mm (half a graph voxel) of the voxelized mask (MaskDistance.distance).
+mask_support / supported_edges implement the user's rule (2026-10-30): 0.4 mm
+tolerance with snapping to the nearest mask voxel centre by default, strict
+nearest-voxel rule as an option.
 """
 import pickle
 
@@ -100,3 +103,59 @@ class MaskDistance:
         offset = (world[:, None, :] - self.centres[idx]) @ self.inverse.T
         excess = np.sign(offset) * np.clip(np.abs(offset) - 0.5, 0, None)
         return np.linalg.norm(excess @ self.linear.T, axis=-1).min(1)
+
+    def nearest_centre(self, world):
+        return self.centres[self.tree.query(world)[1]]
+
+
+SUPPORT_TOLERANCE_MM = 0.4  # half a 0.8 mm graph voxel; 99.8% of nodes lie within it (Phase 0a)
+
+
+def mask_support(mask, affine, world, tolerance_mm=SUPPORT_TOLERANCE_MM, strict=False, distance=None):
+    """Which nodes the mask supports, and hinge-safe positions for them.
+
+    Default: supported iff within tolerance_mm of the voxelized mask; supported nodes whose
+    own voxel is background are snapped to the nearest mask voxel centre, so a hinge at the
+    returned position never asks for SDF < 0 where the reference is outside.
+    strict=True: supported iff the node's own (nearest) voxel is in the mask; no snapping.
+    Returns (supported, positions, distance_mm); positions equal world where not snapped.
+    """
+    world = np.asarray(world, dtype=np.float64)
+    distance = distance or MaskDistance(mask, affine)
+    d = distance.distance(world)
+    inside = inside_mask(mask, affine, world)
+    positions = world.copy()
+    if strict:
+        return inside, positions, d
+    supported = d <= tolerance_mm
+    snap = supported & ~inside
+    if snap.any():
+        positions[snap] = distance.nearest_centre(world[snap])
+    return supported, positions, d
+
+
+def edge_samples(positions, edges, step_mm=0.4):
+    """Points along each edge (endpoints included), spaced at most step_mm. Returns (points, edge id)."""
+    a, b = positions[edges[:, 0]], positions[edges[:, 1]]
+    counts = np.maximum(np.ceil(np.linalg.norm(b - a, axis=1) / step_mm).astype(int), 1) + 1
+    edge_id = np.repeat(np.arange(len(edges)), counts)
+    t = np.concatenate([np.linspace(0, 1, n) for n in counts])[:, None]
+    return a[edge_id] * (1 - t) + b[edge_id] * t, edge_id
+
+
+def supported_edges(mask, affine, positions, edges, supported, tolerance_mm=SUPPORT_TOLERANCE_MM, strict=False,
+                    step_mm=0.4, distance=None):
+    """Edges between supported (snapped) nodes whose sampled points all lie within tolerance of the mask
+    (strict: all samples in mask voxels). Within-piece only: never creates connections between graph pieces."""
+    keep = supported[edges[:, 0]] & supported[edges[:, 1]]
+    if not keep.any():
+        return keep
+    points, edge_id = edge_samples(positions, edges[keep], step_mm)
+    if strict:
+        ok = inside_mask(mask, affine, points)
+    else:
+        ok = (distance or MaskDistance(mask, affine)).distance(points) <= tolerance_mm
+    all_ok = np.ones(int(keep.sum()), bool)
+    np.logical_and.at(all_ok, edge_id, ok)
+    keep[np.flatnonzero(keep)] = all_ok
+    return keep

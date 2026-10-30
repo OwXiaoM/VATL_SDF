@@ -511,7 +511,8 @@ graph only (no MRA anywhere, Phase 1), binary masks without anatomical labels,
 graphs are genuinely imperfect (fragments, extra loops) and must not be "fixed";
 connectivity is always judged relative to the subject's reference. Phases 0–5,
 stop and report after each. Reference loader: `reference/graph_store.py` (user
-copy, identical to `VATL_MM/data_loading/graph_store.py`; untracked).
+copy of `VATL_MM/data_loading/graph_store.py`; committed read-only as
+`reference/graph_store_reference.py` with a provenance header).
 
 Script `analysis/phase0_graph/correspondence.py` (modes headers / conventions /
 stats / qc), launcher `slurm/graph_correspondence.sh`, convention module
@@ -586,6 +587,37 @@ the mask; a tolerance of 0.4 mm (MaskDistance.distance <= 0.4) keeps 99.8%.
   touching/one-voxel artefacts, hypothesis). Long loops: median max radius
   1.13 mm, 95% nodes inside. Every loop lies within one mask component.
   5 mm threshold is arbitrary; per-loop lengths are saved.
+
+### User decisions after Phase 0a/0b report (2026-10-30)
+
+1. Binary vessel mask = (label == 1). Never use the other labels anywhere. All
+   current code defaults to 1; Phase 1 must replace the `--vessel-label` options
+   (preprocess_sdf.py, qc_sdf.py, evaluate.py) with `graph_coords.VESSEL_LABEL`.
+2. Mask support for graph terms: 0.4 mm tolerance (half a graph voxel) by default;
+   tolerated nodes outside the mask are snapped to their nearest mask voxel centre
+   for hinge targets, so a hinge never asks for SDF < 0 where the reference is
+   outside. Edge-path hinge: sample along edges between snapped nodes and keep
+   edges whose samples are all within 0.4 mm of the mask. Strict nearest-voxel
+   rule remains a config option. Implemented and tested in
+   `mra_sdf_only/graph_coords.py` (`mask_support`, `supported_edges`,
+   `edge_samples`; tests in `tests/test_graph_coords.py`).
+3. User will copy the SDF-only checkpoint to helix and give the path (0c).
+4. Reference loader committed as `reference/graph_store_reference.py`.
+
+Phase 2 change (supersedes the plan's centreline-radius default): graph radii are
+quantized on the 0.8 mm grid, the floor overstates one-voxel vessels ~2×, and
+larger radii are biased by ~0.1–0.2 mm vs the reference SDF. The SDF is the ground
+truth, so the DEFAULT centreline term is centreline-weighted sampling: extra SDF
+samples at (mask-supported, snapped) graph nodes with the reference SDF as target.
+Graph-radius regression (r >= 0.9 mm only, never floor nodes) is an optional,
+separate ablation.
+
+Reference-relative connectivity baseline: the reference MASK (26-connectivity),
+median 93.5 components, largest component 0.84 of voxels. The graph is more
+fragmented than the mask (median 51 pieces, largest 0.68; 17 graph pieces inside
+the largest mask component). Do not bridge graph pieces now. Possible later step:
+bridging that only adds connections inside a single mask component (never between
+mask components).
 
 ### Phase 0c: checkpoint diagnostics — pending (checkpoint not yet on helix)
 

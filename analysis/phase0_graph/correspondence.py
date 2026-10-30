@@ -71,7 +71,6 @@ def header_record(subject_id, row):
     sdf = np.asarray(images['SDF'].dataobj)
     out['labels_present'] = ','.join(map(str, np.unique(labels)))
     out['sdf_neg_equals_label1'] = bool(((sdf < 0) == (labels == 1)).all())
-    out['sdf_neg_equals_label_gt0'] = bool(((sdf < 0) == (labels > 0)).all())
     return out
 
 

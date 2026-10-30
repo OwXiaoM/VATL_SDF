@@ -9,8 +9,9 @@ import nibabel as nib
 import numpy as np
 
 from analysis.phase0_graph.correspondence import loops
-from mra_sdf_only.graph_coords import (MaskDistance, RADIUS_SCALE_TO_MM, inside_mask, load_graph, nearest_voxel,
-                                       normalize_world, vessel_mask, voxel_to_world, world_to_voxel)
+from mra_sdf_only.graph_coords import (MaskDistance, RADIUS_SCALE_TO_MM, edge_samples, inside_mask, load_graph,
+                                       mask_support, nearest_voxel, normalize_world, supported_edges, vessel_mask,
+                                       voxel_to_world, world_to_voxel)
 
 ANGLE = np.deg2rad(7)
 ROTATION = np.array([[1, 0, 0], [0, np.cos(ANGLE), -np.sin(ANGLE)], [0, np.sin(ANGLE), np.cos(ANGLE)]])
@@ -77,6 +78,46 @@ class GraphCoordsTest(unittest.TestCase):
         np.testing.assert_allclose(loaded['radius'], [0.7999918, 1.13], rtol=1e-6)
         np.testing.assert_array_equal(loaded['edges'], [[0, 1]])
         self.assertTrue(inside_mask(self.mask, AFFINE, loaded['pos']).all())
+
+
+class MaskSupportTest(unittest.TestCase):
+    def setUp(self):
+        self.mask = np.zeros(SHAPE, bool)
+        self.mask[3:9, 4, 5] = True   # vessel A
+        self.mask[3:9, 7, 5] = True   # vessel B, parallel, two background voxels away
+        voxels = np.array([[6, 4, 5], [6, 4.75, 5], [6, 4.9, 5], [6, 5.0, 5], [6, 7, 5], [3, 4, 5], [8, 4, 5]])
+        self.world = voxel_to_world(AFFINE, voxels)
+
+    def test_tolerance_and_snapping(self):
+        supported, positions, d = mask_support(self.mask, AFFINE, self.world)
+        # 0.25 and 0.4 voxel past the face (0.23 / 0.375 mm) are tolerated; 0.5 voxel (0.47 mm) is not.
+        np.testing.assert_array_equal(supported, [True, True, True, False, True, True, True])
+        np.testing.assert_allclose(positions[[1, 2]], voxel_to_world(AFFINE, [[6, 4, 5], [6, 4, 5]]), atol=1e-9)
+        np.testing.assert_allclose(positions[[0, 3, 4]], self.world[[0, 3, 4]])
+        # Hinge targets are never in background voxels.
+        self.assertTrue(inside_mask(self.mask, AFFINE, positions[supported]).all())
+
+    def test_strict_rule_has_no_tolerance_or_snapping(self):
+        supported, positions, _ = mask_support(self.mask, AFFINE, self.world, strict=True)
+        np.testing.assert_array_equal(supported, [True, False, False, False, True, True, True])
+        np.testing.assert_allclose(positions, self.world)
+
+    def test_edge_filter_drops_edges_leaving_the_mask(self):
+        edges = np.array([[5, 6],   # along vessel A: kept
+                          [1, 6],   # from a snapped node along A: kept
+                          [0, 4],   # A -> B across background: dropped
+                          [3, 0]])  # unsupported endpoint: dropped
+        supported, positions, _ = mask_support(self.mask, AFFINE, self.world)
+        np.testing.assert_array_equal(supported_edges(self.mask, AFFINE, positions, edges, supported),
+                                      [True, True, False, False])
+        strict, raw, _ = mask_support(self.mask, AFFINE, self.world, strict=True)
+        np.testing.assert_array_equal(supported_edges(self.mask, AFFINE, raw, edges, strict, strict=True),
+                                      [True, False, False, False])
+
+    def test_edge_samples_spacing(self):
+        points, edge_id = edge_samples(np.array([[0., 0, 0], [1., 0, 0]]), np.array([[0, 1]]), step_mm=0.4)
+        np.testing.assert_allclose(points[:, 0], [0, 1 / 3, 2 / 3, 1])
+        np.testing.assert_array_equal(edge_id, 0)
 
 
 class LoopTest(unittest.TestCase):
