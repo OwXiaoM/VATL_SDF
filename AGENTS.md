@@ -9,12 +9,18 @@ Read `configs/ablations/README.md` for exact experiment commands and caveats.
 Use **02_sdf_only** as the baseline for all subsequent experiments. Do not
 investigate intensity supervision or compare intensity-related ablations.
 Corrected splitting is implemented: train only the 497 IDs from
-`/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml`,
+`/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml`,
 then evaluate the first 3/5 of its 55 validation IDs in YAML order. The original
 split file is unchanged. Existing 552-subject checkpoints are contaminated for
 this validation cohort and must never initialize the corrected run. See
 `configs/evaluation/README.md`; use `slurm/train_sdf_only_split.sh` for a fresh
 run, with unchanged SDF-only training hyperparameters. No jobs were submitted.
+
+## Active programme (2026-10-30)
+
+Phased SDF-only refactor / skeleton supervision / probabilistic atlas; see the
+last section of `CONTEXT.md` for phase status, Slurm budget rules and the job
+table. Report and wait for confirmation after each phase.
 
 ## Working conventions
 
@@ -32,7 +38,12 @@ run, with unchanged SDF-only training hyperparameters. No jobs were submitted.
 
 ## Environment
 
-Repository: `/leonardo/home/userexternal/xzhang01/VATL_SDF`.
-Use `source slurm/environment.sh` for Python and required HPC modules. Activating
-the virtualenv alone did not provide a complete runtime in this session.
+Repository: `/users/zhangx/VATL_SDF`.
+Cluster: EURECOM helix (migrated from CINECA Leonardo on 2026-10-30). Data:
+`/medias/medical/data/Atlas_training/v1`; outputs:
+`/medias/medical/data/Atlas_training/Cinema_output/mra_sdf_only`.
+Use `source slurm/environment.sh` (sources `~/.bashrc1`, `conda activate torch`).
+Slurm: default account `caravel`, partition `h200`, GPUs must be typed
+(`--gres=gpu:h200:N`); QOS `normal` caps jobs at 24 h. Original Leonardo runs
+and checkpoints are not on this cluster.
 A local Git repository was initialized on 2026-10-30; GitHub upload used the connected app. Local SSH authentication was unavailable.

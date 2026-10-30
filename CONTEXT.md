@@ -422,3 +422,92 @@ sbatch slurm/train_sdf_only_split.sh
 sbatch slurm/evaluate_sdf_only.sh 3 /absolute/path/new_validation3 --checkpoint /absolute/path/NEW_checkpoint.pt --cohort-manifest configs/evaluation/validation_cohort.json
 sbatch slurm/evaluate_sdf_only.sh 5 /absolute/path/new_validation5 --checkpoint /absolute/path/NEW_checkpoint.pt --cohort-manifest configs/evaluation/validation_cohort.json
 ```
+
+## 2026-10-30: migration to EURECOM helix cluster
+
+- Repository moved to `/users/zhangx/VATL_SDF`; data to
+  `/medias/medical/data/Atlas_training/v1`. Live configs, Slurm scripts, tests
+  and docs were updated; `analysis/` and earlier sections here keep the
+  original Leonardo paths as historical records.
+- Measured: the new `ixi_metadata_label_t1_fast_sdf.tsv` is byte-identical to
+  the original after restoring the old path prefix (SHA256 of the substituted
+  file = frozen 71d6ab5b…). The new file's SHA256
+  b1f896eeccf1f9889da7b63ddd7bb6fd68f0712e4191cc7d878570f2e90134a5 replaced it
+  in `configs/evaluation/validation_cohort.json`. Split YAML SHA256 is
+  unchanged (bc84b1dd…), 497/55/0.
+- `output_root` is now `/medias/medical/data/Atlas_training/Cinema_output/mra_sdf_only`
+  (no personal scratch exists). Training hyperparameters unchanged; still 4 GPUs
+  (now H200 instead of Leonardo A100), so DDP world size matches.
+- Slurm: `-A` removed (default `caravel`), `-p h200`, `--gres=gpu:h200:N`,
+  `--mem=256G` added to training (DefMemPerCPU is 4 GB), `module` calls removed.
+- The original-config equality test now skips unless the Leonardo
+  `config_final.yaml` is copied to the path named in `tests/test_splits.py`;
+  `output_root` dropped from that comparison as machine-specific.
+- Validation on login node: test_splits + test_pipeline 16 OK (1 skipped),
+  test_individual 6 OK; real-data audit of 2 subjects loaded; `sbatch
+  --test-only` accepted training and evaluation scripts. No jobs submitted.
+
+## Refactor programme (started 2026-10-30): SDF-only, skeleton supervision, probabilistic atlas
+
+User task (2026-10-30): Phase 0 diagnose data/results; Phase 1 pure-SDF refactor
+(remove MRA loading/head/loss/exports, tag `pre-sdf-only-refactor` first);
+Phase 2 centerline radius/hinge supervision; Phase 3 population variability
+maps; Phase 4 label-free probabilistic graph design doc only. Stop and report
+after each phase; wait for confirmation. Pilot Slurm budget without asking:
+<=1 node, <=4 GPUs, <=4 h/job, <=2 jobs at once, <=32 GPU-h/phase; outputs only
+under `<output_root>/claude_pilots/<date>_<name>/`. Full runs need approval.
+
+### Phase 0 (in progress; waiting for checkpoint)
+
+User answers: will copy the Leonardo 552-subject 02_sdf_only checkpoint
+(`checkpoint_step_00262200.pt`, SHA256 6f7c52af…) to helix for fitting
+diagnostics (training subjects only; contaminated for validation). Graphs were
+built from the same fast label-1 binary mask resampled to 0.8 mm isotropic.
+
+Graph format (verified): `v1/graph/<id>-Graph.pkl` = dict {graph: networkx.Graph,
+node_radius_map, voxel_sizes, input_file}. Node attrs `pos` (world mm, same
+RAS world frame as the SDF/MRA affine; no flip) and `radius` (mm); edge attr
+`weight` = Euclidean edge length; a few nodes carry `contraction`. Index TSV:
+`v1/ixi_metadata_label_t1_fast_graph.tsv`; all 552 SDF subjects have a graph.
+
+Measured over all 552 subjects (job 46213; `claude_pilots/20261030_graph_inspect/`,
+script `analysis/phase0_graph/inspect_graphs.py`):
+
+- Nodes median 3,777 (1,422–6,216); median edge length 0.93 mm, max <=2 mm.
+- Skeleton graphs are themselves fragmented: components median 51 (5–95%:
+  26–122), largest component median 68% of nodes. Independent cycles median 35
+  (possible false loops where vessels touch; not yet inspected).
+- Radius is a distance transform on the 0.8 mm grid (values 0.8·sqrt(k)):
+  83.6% of nodes sit at the floor 0.8 mm (one voxel); 0% below 0.5 mm; max
+  1.8–3.7 mm. The floor is a quantization limit, not a measured radius.
+- Coordinates: 99.6%+ of nodes inside the SDF FOV; median 90.8% inside the
+  label-1 mask; median reference SDF at nodes −0.63 mm; ≤0.4% of nodes >1 mm
+  outside the surface; corr(−SDF, r) median 0.68. Coordinate frames agree.
+- SDF(c) vs −r(c) (5 subjects, 20,871 nodes): for r >= 0.9 mm, SDF ≈ −r with
+  median offset +0.10 to +0.23 mm and 100% of nodes inside. For floor nodes
+  (r = 0.8) median SDF −0.44 mm, 21% are outside the reference mask
+  (median SDF+r = +0.36). Implication for Phase 2: do not regress floor radii;
+  even a hinge on floor nodes contradicts the reference SDF for ~1/5 of them.
+- Mask voxels farther than (r+1 mm) from all nodes: median 4.5%, 95th pct 20%.
+- `sdf < 0` equals the label-1 mask exactly for every subject.
+
+Infrastructure fix: `slurm/environment.sh` aborted every `set -e` batch job with
+exit 127 (failing command inside ~/.bashrc1; job 46211 failed in 0 s). It now
+relaxes -e/-u while sourcing and restores the caller's options.
+
+Prepared, not yet run: `analysis/phase0_graph/diagnose_checkpoint.py` and
+`slurm/diagnose_checkpoint.sh` (1×L40S, dev QoS, 2 h): six training subjects
+(3 per sex at age quantiles 0.1/0.5/0.9), native grid and 2× supersampled grid
+vs reference (Dice, volume, 6/26 components, largest fraction), grid-free
+centreline recall by radius bin, mean-latent atlas at 1 mm and 0.5 mm.
+
+Cluster notes: QoS `dev` = 2 h, 8 GPUs/128 CPU per user; h200 queue estimated
+multi-day waits on 2026-10-30, l40s started within minutes.
+
+### Claude-submitted jobs
+
+| Job | Purpose | Overrides | Output | GPU-h | Outcome |
+| --- | --- | --- | --- | ---: | --- |
+| 46211 | graph inspection (CPU) | -p l40s | claude_pilots/20261030_graph_inspect | 0 | FAILED 0 s: environment.sh exit 127 |
+| 46212 | environment test (CPU) | -p l40s, dev | same dir, envtest_46212.log | 0 | COMPLETED, diagnosed 46211 |
+| 46213 | graph inspection, 552 subjects (CPU) | -p l40s | claude_pilots/20261030_graph_inspect | 0 | COMPLETED 3 min |
