@@ -12,7 +12,8 @@ import nibabel as nib
 import torch
 from torch.utils.data import Dataset
 from scipy.ndimage import map_coordinates
-from .config import condition_vector, graph_terms
+from .config import condition_vector, field_names, graph_terms
+from .graph_fields import build_centerline, field_targets
 from .graph_coords import (MaskDistance, load_graph, mask_support, normalize_world, supported_edges, voxel_to_world,
                            world_to_voxel)
 from .splits import read_splits, ordered_rows
@@ -105,7 +106,10 @@ def load_subject(row, config):
     if 'supported' in graph:
         report.update(graph_nodes_supported=int(graph['supported'].sum()),
                       graph_edges_supported=int(graph['edge_supported'].sum()))
-    return {'sdf':sdf,'affine':affine,'valid':valid,'graph':graph,'report':report}
+    subject = {'sdf':sdf,'affine':affine,'valid':valid,'graph':graph,'report':report}
+    if field_names(config):
+        subject['centerline'] = build_centerline(subject, config['graph_fields'])
+    return subject
 
 
 def graph_support(mask, affine, graph, settings):
@@ -220,8 +224,13 @@ def sample_sdf(subject, config, rng):
     sr['outside_definition'] = 'SDF > surface_band_mm; surface/interior intentionally overlap'
     sr['sampled_negative_fraction'] = float((sdf[si]<0).mean())
     sr['sampled_surface_fraction'] = float((np.abs(sdf[si])<=band).mean())
-    return {'sdf_coords':voxel_coordinates(si,subject['sdf'].shape,subject['affine'],config),
-            'sdf_target_mm':sdf[si,None].copy(), 'sampling_report':{'sdf':sr}}
+    result = {'sdf_coords':voxel_coordinates(si,subject['sdf'].shape,subject['affine'],config),
+              'sdf_target_mm':sdf[si,None].copy(), 'sampling_report':{'sdf':sr}}
+    if 'centerline' in subject:
+        world = voxel_to_world(subject['affine'], np.column_stack(np.unravel_index(si, subject['sdf'].shape)))
+        result['field_target'], result['field_weight'] = field_targets(subject['centerline'], world, config['graph_fields'],
+                                                                       config['sdf']['truncation_mm'])
+    return result
 
 
 class SDFGraphDataset(Dataset):

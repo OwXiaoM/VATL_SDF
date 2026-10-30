@@ -61,6 +61,27 @@ def add_graph_losses(parts, predictions, batch_terms, config):
     return parts
 
 
+def field_losses(parts, fields, targets, weights, config):
+    """Phase 4 heads. targets (n, 6): distance_mm, radius_mm, tangent xyz, junction; weights (n, 4)."""
+    tau = config['sdf']['truncation_mm']
+    column = {'centerline_distance': 0, 'radius': 1, 'tangent': 2, 'junction': 3}
+    for name, prediction in fields.items():
+        w = weights[:, column[name]:column[name] + 1]
+        if name == 'centerline_distance':
+            raw = weighted_mean((prediction - targets[:, 0:1] / tau).abs(), w)
+        elif name == 'radius':
+            raw = weighted_mean((prediction - targets[:, 1:2] / tau).abs(), w)
+        elif name == 'tangent':  # sign-invariant: a centreline direction has no orientation
+            cosine = F.cosine_similarity(prediction, targets[:, 2:5], dim=-1, eps=1e-6).abs()[:, None]
+            raw = weighted_mean(1 - cosine, w)
+        else:
+            raw = weighted_mean((prediction.sigmoid() - targets[:, 5:6]).square(), w)
+        parts[f'field_{name}_raw'] = raw
+        parts[f'field_{name}_weighted'] = config['graph_fields'][name]['weight'] * raw
+        parts['total'] = parts['total'] + parts[f'field_{name}_weighted']
+    return parts
+
+
 def eikonal_loss(sdf_normalized, coords, half_bbox_mm, truncation_mm, band=None):
     """mean (|grad SDF|_mm - 1)^2 over points in band. Inputs are normalized by the anisotropic bbox
     half-lengths and outputs by the truncation, so d SDF_mm / d x_mm = truncation * d s / d u / half_bbox

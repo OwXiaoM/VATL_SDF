@@ -81,6 +81,18 @@ graph:
     enabled: false
     weight: 0.1
     band_mm: 2.0
+graph_fields:
+  # Phase 4 implicit graph fields: extra heads on the shared backbone, evaluated at the SDF samples.
+  # Targets come from the mask-supported graph only (vatl_sdf/graph_fields.py); local radius is
+  # -reference SDF at the nearest centreline point. Weight 0 near short loops / unsupported nodes.
+  centerline_distance: {enabled: false, weight: 1.0}
+  radius: {enabled: false, weight: 1.0}
+  tangent: {enabled: false, weight: 0.1}
+  junction: {enabled: false, weight: 1.0}
+  band_mm: 1.0 # radius/tangent supervised where distance <= radius + band_mm
+  junction_sigma_mm: 1.0
+  short_loop_mm: 5.0
+  exclusion_mm: 1.0
 optimizer:
   lr_model: 0.0001
   lr_latent: 0.0005

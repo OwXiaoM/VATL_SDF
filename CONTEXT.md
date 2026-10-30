@@ -2,6 +2,12 @@
 
 Last updated: 2026-10-30 (Phase 0a/0b).
 
+## Slurm resource sizing
+
+      Before every sbatch, check sinfo/squeue and size CPUs, memory and partition to what is
+      free now so the job starts immediately. Prefer fewer CPUs over waiting. Keep the GPU
+      count identical across runs that are compared.
+
 ## Current decision (overrides historical baseline comparisons below)
 
 **02_sdf_only is the baseline for every subsequent experiment.** Do not continue
@@ -621,6 +627,66 @@ mask components).
 
 ### Phase 0c: checkpoint diagnostics — pending (checkpoint not yet on helix)
 
+### 2026-10-30 (late): user authorization and output location
+
+User: there is no checkpoint for this session; put all results under
+`/medias/medical/caravel/zhangx/training_outputs/sdf_only` and execute the
+experiments without asking for approval. Consequently: Phase 0c uses a NEW
+SDF-only baseline trained here (497/55 split); phases proceed without waiting
+for confirmation; reports are recorded here. Layout: `runs/` (full runs),
+`pilots/` (screening), `logs/`, `analysis/`.
+
+### Phase 1: pure SDF + graph pipeline (done; commit 264a170, tag pre-sdf-only-refactor)
+
+- Tag `pre-sdf-only-refactor` = last code with MRA loader/head/loss (package
+  `mra_sdf_only`); export old MRA-head checkpoints from a worktree of that tag.
+- Package renamed `mra_sdf_only` -> `vatl_sdf`. Dataset (`SDFGraphDataset`)
+  reads subject_id, SDF, Graph, scan_age, sex only (TSV MRA/T1/Seg columns are
+  ignored); crop and normalization from the SDF affine; graph nodes normalized
+  by the same `graph_coords.normalize_world`. Vessel mask = SDF < 0 (= label 1).
+- Model `SDFModel`: single SDF head, output (N, 1). Loss: sdf_weight*L1(norm.
+  SDF) + moe_weight*balance (+ tf_weight*transform). MRA metrics, weights and
+  gradient diagnostics removed. Exports VesselSDF + VesselMask only.
+- `evaluate.py`: SDF MAE, truncation-band MAE, zero-level Dice, sign agreement,
+  components, and `reference_relative_connectivity` (26-conn counts, ratio,
+  excess, >=10-voxel counts, largest-fraction difference vs reference mask).
+- Config `configs/sdf/00_sdf_baseline.yaml` (= `config.yaml`): legacy
+  02_sdf_only except no MRA and sdf_weight 1.0 (test checks this). Legacy
+  configs/launchers in `configs/ablations/legacy_mra/`, `slurm/legacy_mra/`.
+- `--vessel-label` options removed (graph_coords.VESSEL_LABEL).
+- Tests (CPU): 46 pass (pipeline incl. exact resume and graph–SDF coordinate
+  consistency; graph terms; population maps; splits on the real 497/55 YAML).
+- GPU smoke job 46330 (3 L40S, DDP, 8 subjects, full-size model): 200 steps,
+  exact resume to 300, atlas + native subject export + evaluation, DDP table
+  difference 0.0, export mask mismatch 0. Throughput ~3 optimizer steps/s per
+  rank (25k SDF points/rank/step) -> full 200-epoch 497-subject run ~23 h on
+  4 L40S, ~31 h on 3. l40s nodes have 32 CPUs: request 16 CPUs per job.
+- GPU availability: h200 congested; no l40s node had 4 free GPUs (helix02: 3).
+  Full runs therefore use 3 GPUs (world size 3 = 15 subjects per distributed
+  batch, config otherwise unchanged); all compared full runs must match.
+
+### Phase 2: graph supervision (code done; commit e06b276; pilots running)
+
+Design (all terms use the Phase 0a support rule; each enabled term draws its
+own points_fraction (0.15) x SDF points EXTRA per subject, so 04 = union):
+- `centerline_sdf` (DEFAULT centreline term per user): points uniform along
+  edges with both endpoints supported (original positions), target =
+  trilinear reference SDF. Never contradicts the reference.
+- `centerline_hinge`: supported nodes, snapped; relu(pred - ceiling).
+- `edge_hinge`: points along mask-supported edges between snapped nodes.
+  Cannot connect separate graph pieces (by construction).
+- Hinge ceiling = reference SDF where it is > 0 (tolerated points <= 0.4 mm
+  out), else -epsilon (0): a hinge never asks SDF < 0 where reference > 0.
+- `radius` (optional 05): |pred + r| at supported nodes with r >= 0.9 mm.
+- `eikonal` (optional 06): (|grad SDF|_mm - 1)^2, gradient converted with the
+  anisotropic bbox half-lengths and truncation; DDP not tested.
+- MoE balancing on SDF points only (balance_count).
+Configs `configs/sdf/01_centerline_sdf` … `06_eikonal` (one change each).
+Pilot protocol (screening evidence only): single L40S, first 100 training
+subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
+`analysis/phase0_graph/diagnose_checkpoint.py` on 6 fixed training subjects
+(3 per sex, age quantiles), native grid + 1 mm atlas.
+
 ### Claude-submitted jobs
 
 | Job | Purpose | Overrides | Output | GPU-h | Outcome |
@@ -629,3 +695,8 @@ mask components).
 | 46212 | environment test (CPU) | -p l40s, dev | same dir, envtest_46212.log | 0 | COMPLETED, diagnosed 46211 |
 | 46213 | graph inspection, 552 subjects (CPU) | -p l40s | claude_pilots/20261030_graph_inspect | 0 | COMPLETED 3 min |
 | 46230 | Phase 0a/0b correspondence + stats, 552 subjects (CPU) | -p l40s, dev, 16 CPU | claude_pilots/20261030_graph_correspondence | 0 | COMPLETED 4 min 49 s |
+| 46325 | Phase 1 smoke (3 L40S) | 32 CPUs requested | — | 0 | CANCELLED: not schedulable (node has 16 free CPUs) |
+| 46330 | Phase 1 smoke, DDP 3 L40S, 8 subj, 200+100 steps | 16 CPUs | sdf_only/pilots/20261030_phase1_smoke_ddp | 0.13 | COMPLETED 2.5 min, SMOKE_OK |
+| 46332 | FULL 00_sdf_baseline, 497 subj, 200 epochs (part 1) | 3 L40S, 24 h | sdf_only/runs/00_sdf_baseline_full | running | |
+| 46333 | continuation of 46332 (afterany) | 3 L40S, 24 h | same | pending | |
+| 46334–46339 | Phase 2 pilots 00–05 (100 subj, 40k steps) | 1 L40S each, 8 h | sdf_only/pilots/20261030_p2_<config> | running/pending | |

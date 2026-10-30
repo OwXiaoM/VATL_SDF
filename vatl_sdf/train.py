@@ -17,8 +17,8 @@ import yaml
 from .config import load_config
 from .dataset import SDFGraphDataset, collate_subjects
 from .model import SDFModel
-from .losses import sdf_losses, add_graph_losses, eikonal_loss
-from .config import graph_terms
+from .losses import sdf_losses, add_graph_losses, eikonal_loss, field_losses
+from .config import field_names, graph_terms
 from .inference import generate_atlas
 from .splits import check_resume_subjects
 
@@ -112,7 +112,7 @@ def train(config):
         if rank==0:print('Already at max_steps; no updates made',flush=True)
         if world>1:dist.destroy_process_group()
         return directory
-    terms=graph_terms(config);eikonal=bool(config.get('graph')) and config['graph']['eikonal']['enabled']
+    terms=graph_terms(config);eikonal=bool(config.get('graph')) and config['graph']['eikonal']['enabled'];fields_on=bool(field_names(config))
     if rank==0:print(f'Output: {directory}; subjects={len(data)}; world_size={world}; device={device}; graph_terms={terms}; eikonal={eikonal}',flush=True)
     for epoch in range(position['epoch'],config['training']['epochs']):
         data.epoch=epoch
@@ -139,6 +139,7 @@ def train(config):
             ids=indices.repeat_interleave(p);cond=conditions.repeat_interleave(p,dim=0)
             perm=torch.randperm(len(coords),generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank)).to(device)
             arrays=(coords[perm],targets[perm],ids[perm],cond[perm])
+            if fields_on:arrays+=tuple(batch[k].reshape(-1,batch[k].shape[-1]).to(device)[perm] for k in ('field_target','field_weight'))
             steps=math.ceil(len(coords)/config['training']['task_points_per_step'])
             # Extra graph points per enabled term, shuffled independently and split over the same steps.
             graph_arrays={}
@@ -149,16 +150,18 @@ def train(config):
                                          batch[f'{term}_weight'].reshape(-1,1),indices.repeat_interleave(gp),conditions.repeat_interleave(gp,dim=0)))
             for inner in range(steps):
                 if epoch==position['epoch'] and batch_index==position['batch'] and inner<position['inner']:continue
-                sc,st,si,sv=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
+                sc,st,si,sv,*field_slices=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
                 pieces={term:tuple(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in graph_arrays[term]) for term in terms}
                 if eikonal:sc=sc.detach().requires_grad_(True)
                 optimizer.zero_grad(set_to_none=True)
                 all_coords=torch.cat([sc]+[pieces[t][0] for t in terms]);all_ids=torch.cat([si]+[pieces[t][3] for t in terms])
                 all_cond=torch.cat([sv]+[pieces[t][4] for t in terms])
-                output,moe=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None)
+                if fields_on:output,moe,fields=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None,return_fields=True)
+                else:output,moe=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None)
                 outputs=output.split([len(sc)]+[len(pieces[t][0]) for t in terms])
                 parts=sdf_losses(outputs[0],st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
                 if terms:parts=add_graph_losses(parts,[(o,pieces[t][1],pieces[t][2]) for o,t in zip(outputs[1:],terms)],terms,config)
+                if fields_on:parts=field_losses(parts,{k:v[:len(sc)] for k,v in fields.items()},field_slices[0],field_slices[1],config)
                 if eikonal:
                     band=st.abs().reshape(-1)<=config['graph']['eikonal']['band_mm']
                     eik=eikonal_loss(outputs[0],sc,model.half_bbox,config['sdf']['truncation_mm'],band)

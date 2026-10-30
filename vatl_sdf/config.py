@@ -50,6 +50,12 @@ def validate(c):
     if c['training']['atlas_every'] < 0 or c['optimizer']['scheduler_epochs'] <= 0:
         raise ValueError('Invalid atlas period or scheduler horizon')
     validate_graph(c.get('graph', {}))
+    fields = c.get('graph_fields', {})
+    for name in field_names(c, enabled_only=False):
+        if not isinstance(fields[name]['enabled'], bool) or fields[name]['weight'] < 0:
+            raise ValueError(f'Invalid graph_fields.{name}')
+    if fields and min(fields['band_mm'], fields['junction_sigma_mm'], fields['short_loop_mm'], fields['exclusion_mm']) <= 0:
+        raise ValueError('Invalid graph_fields geometry settings')
 
 
 GRAPH_POINT_TERMS = ('centerline_sdf', 'centerline_hinge', 'edge_hinge', 'radius')
@@ -68,6 +74,15 @@ def validate_graph(g):
             raise ValueError(f'graph.{name}.points_fraction must be in (0, 1]')
     if g['eikonal']['band_mm'] <= 0 or g['radius']['min_radius_mm'] < 0:
         raise ValueError('Invalid eikonal band or radius threshold')
+
+
+FIELD_NAMES = ('centerline_distance', 'radius', 'tangent', 'junction')
+
+
+def field_names(config, enabled_only=True):
+    """Phase 4 implicit graph-field heads (enabled ones by default)."""
+    fields = config.get('graph_fields', {})
+    return [n for n in FIELD_NAMES if fields and (not enabled_only or fields[n]['enabled'])]
 
 
 def graph_terms(config):

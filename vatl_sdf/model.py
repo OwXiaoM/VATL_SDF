@@ -3,6 +3,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from .layers import SineLayer, MoESineLayer
+from .config import field_names
+from .graph_fields import FIELDS
 
 
 def rigid_transform(coords, parameters, half_bbox):
@@ -44,8 +46,11 @@ class SDFModel(nn.Module):
         bound = math.sqrt(6/m['hidden_size'])/m['omega_hidden']
         nn.init.uniform_(self.sdf_head.weight,-bound,bound)
         nn.init.zeros_(self.sdf_head.bias)
+        # Optional Phase 4 heads (created only when enabled, so the baseline is unchanged).
+        self.field_heads = nn.ModuleDict({name: nn.Linear(head_features, FIELDS[name]) for name in field_names(config)})
 
-    def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True, balance_count=None):
+    def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True, balance_count=None,
+                return_fields=False):
         """balance_count: MoE balancing uses only the first balance_count points (SDF samples)."""
         if coords.ndim!=2 or coords.shape[1]!=3 or conditions.shape!=(len(coords),2):
             raise ValueError('Expected Nx3 coordinates and Nx2 age/sex conditions')
@@ -77,4 +82,6 @@ class SDFModel(nn.Module):
         output = self.sdf_head(shared)
         auxiliary = [layer.latest_loss for layer in self.backbone if isinstance(layer,MoESineLayer)]
         moe = sum(auxiliary)/len(auxiliary) if auxiliary else output.sum()*0.
+        if return_fields:
+            return output,moe,{name: head(shared) for name, head in self.field_heads.items()}
         return output,moe
