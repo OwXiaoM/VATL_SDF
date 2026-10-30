@@ -698,5 +698,26 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46325 | Phase 1 smoke (3 L40S) | 32 CPUs requested | — | 0 | CANCELLED: not schedulable (node has 16 free CPUs) |
 | 46330 | Phase 1 smoke, DDP 3 L40S, 8 subj, 200+100 steps | 16 CPUs | sdf_only/pilots/20261030_phase1_smoke_ddp | 0.13 | COMPLETED 2.5 min, SMOKE_OK |
 | 46332 | FULL 00_sdf_baseline, 497 subj, 200 epochs (part 1) | 3 L40S, 24 h | sdf_only/runs/00_sdf_baseline_full | running | |
-| 46333 | continuation of 46332 (afterany) | 3 L40S, 24 h | same | pending | |
-| 46334–46339 | Phase 2 pilots 00–05 (100 subj, 40k steps) | 1 L40S each, 8 h | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46333 | continuation of 46332 (afterany) | | | 0 | CANCELLED: would import live code; replaced by 46342 |
+| 46335–46339 | pilots 01–05 (first submission) | | | 0 | CANCELLED before start: live code tree; replaced by 46343–46347 |
+| 46334 | Phase 2 pilot 00_sdf_baseline (100 subj, 40k steps) + diagnostics | 1 L40S | sdf_only/pilots/20261030_p2_00_sdf_baseline | 1.80 | COMPLETED 1 h 48 min, PILOT_OK |
+| 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | pending | |
+| 46343–46347 | Phase 2 pilots 01–05 | 1 L40S each, frozen e06b276 | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
+
+Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
+(a `git worktree` at that commit) so live edits never reach pending jobs.
+
+### Phase 2 pilot screening (screening evidence: 100 subjects, 40k steps, 1 seed)
+
+`python -m analysis.phase2.summarize_pilots` (medians over 6 training subjects,
+native grid; reference-relative connectivity). Rows added as pilots finish.
+
+| Pilot | Dice | band MAE mm | vol ratio | comp ratio >=10 | largest diff | inside floor / 0.9-1.2 / 1.2-1.6 / >=1.6 | atlas 1 mm comps (largest) | SDF L1 last 2k |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
+| 00 baseline | 0.184 | 1.73 | 1.39 | 5.40 | -0.33 | 0.08 / 0.24 / 0.47 / 0.75 (ref floor 0.95) | 1658 (0.55) | 0.139 |
+
+Observation (fact): at pilot scale individual fits are poor (Dice 0.18, 5.4x
+the reference's >=10-voxel components), so pilot comparisons measure early
+training behaviour, not converged fits. Whether this persists at full scale is
+answered by 0c on the full baseline.
