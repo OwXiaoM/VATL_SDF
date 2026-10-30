@@ -1,8 +1,10 @@
+# Default configuration = configs/sdf/00_sdf_baseline.yaml (kept in sync; tests load this file).
 seed: 42
 device: cuda
-output_root: /medias/medical/data/Atlas_training/Cinema_output/mra_sdf_only
-run_name: baseline
+output_root: /medias/medical/caravel/zhangx/training_outputs/sdf_only/runs
+run_name: 00_sdf_baseline
 resume: null
+require_fresh_start: true
 data:
   tsv: /medias/medical/data/Atlas_training/v1/ixi_metadata_label_t1_fast_sdf.tsv
   subject_ids: /medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml
@@ -15,15 +17,9 @@ data:
   age_range: [19, 87]
   sex_categories: [M, F]
   condition_scale: 0.05
-  intensity_normalization: preserve_unit_or_percentile
-  intensity_percentile: 99.9
   cache_subjects: 1
   num_workers: 2
 sampling:
-  mra:
-    points: 250000
-    fractions: {uniform: 0.7, bright: 0.3}
-    bright_quantile: 0.9 # quantile of positive intensities; no anatomical mask
   sdf:
     points: 250000
     surface_band_mm: 2.0
@@ -45,13 +41,12 @@ model:
   num_experts: 4
   moe_k: 2
   rigid: true
-  mra_activation: linear # optional sigmoid; exports never apply spatial masks
 loss:
-  mra_weight: 1.0
-  sdf_weight: 0.1
+  # Legacy 02_sdf_only used 0.1. Adam makes the global loss scale minor, but the
+  # SDF : MoE-balance ratio changes from 10:1 to 100:1.
+  sdf_weight: 1.0
   moe_weight: 0.01
   tf_weight: 0.0
-  mra_metric: l1
   sdf_metric: l1
 optimizer:
   lr_model: 0.0001
@@ -63,12 +58,13 @@ optimizer:
 training:
   epochs: 1000
   subjects_per_rank: 5 # four GPUs -> 20 subjects per distributed batch
-  task_points_per_step: 25000 # EACH task, EACH rank; separate slices/masks
+  # SDF points per rank per optimizer step. Unchanged from the legacy runs, which also
+  # sent 25000 MRA points per step; that half of the compute is now freed.
+  task_points_per_step: 25000
   checkpoint_every: 10
   atlas_every: 10
   max_steps: null # global optimizer-step limit; smoke tests only
-  stop_after_epoch: null # inclusive epoch, without changing scheduler horizon
-  gradient_diagnostics_every: 0
+  stop_after_epoch: 199 # inclusive epoch (200-epoch suite), scheduler horizon unchanged
 atlas:
   age: 20.0
   sex: M

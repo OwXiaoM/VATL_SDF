@@ -23,8 +23,9 @@ import yaml
 
 from .config import condition_vector, validate
 from .inference import native_grid, weighted_latent
+from .evaluate import reference_relative_connectivity
 from .individual_metrics import component_metrics, evaluate_sdf, summarize
-from .model import MRASDFModel, rigid_transform
+from .model import SDFModel, rigid_transform
 from .splits import read_splits, ordered_rows
 
 
@@ -151,7 +152,7 @@ def forward_sdf(model, coords, condition, latent, transform):
         coords = rigid_transform(coords, transform.expand(len(coords), -1), model.half_bbox)
     ids = torch.zeros(len(coords), device=coords.device, dtype=torch.long)  # never used for stored parameters
     cond = torch.as_tensor(condition, device=coords.device).reshape(1, 2).expand(len(coords), -1)
-    return model(coords, ids, cond, latent_override=latent, apply_transform=False)[0][:, 1]
+    return model(coords, ids, cond, latent_override=latent, apply_transform=False)[0][:, 0]
 
 
 def fit_subject(model, initial, condition, observation_coords, observation_sdf_mm, config, settings, seed):
@@ -298,8 +299,6 @@ def run(args):
         provenance['checkpoint_sha256'] = sha256(checkpoint_path)
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         config = copy.deepcopy(checkpoint['config']); validate(config)
-        if config['loss']['mra_weight'] != 0:
-            raise ValueError('This pipeline accepts SDF-only checkpoints (mra_weight=0)')
         training = pd.DataFrame(checkpoint['metadata'])
         if training.subject_id.duplicated().any() or len(training) != len(checkpoint['model']['latents']):
             raise ValueError('Checkpoint metadata/latent table mismatch')
@@ -342,7 +341,7 @@ def run(args):
         torch.backends.cudnn.benchmark = False; torch.backends.cudnn.deterministic = True
         torch.backends.cuda.matmul.allow_tf32 = False; torch.backends.cudnn.allow_tf32 = False
         torch.use_deterministic_algorithms(True, warn_only=args.determinism == 'seeded')
-        model = MRASDFModel(config, len(training)); model.load_state_dict(checkpoint['model'])
+        model = SDFModel(config, len(training)); model.load_state_dict(checkpoint['model'])
         del checkpoint
         model.to(args.device).eval()
         for p in model.parameters():
@@ -395,7 +394,9 @@ def run(args):
                                      settings['metric_truncation_mm'], settings['surface_tolerance_mm'])
                 dense = {'subject_id': row.subject_id, 'protocol': protocol, 'scope': 'full_fov_descriptive', **whole,
                          **{'pred_'+k: v for k, v in component_metrics((prediction < 0) & valid).items()},
-                         **{'reference_'+k: v for k, v in component_metrics((sdf < 0) & valid).items()}}
+                         **{'reference_'+k: v for k, v in component_metrics((sdf < 0) & valid).items()},
+                         **{'connectivity_'+k: v for k, v in reference_relative_connectivity((prediction < 0) & valid,
+                                                                                            (sdf < 0) & valid).items()}}
                 dump(dest/'metrics.json', {'heldout_spatial_folds': primary, 'full_fov_descriptive': dense})
                 comparison_figure(dest/'comparison.png', sdf, prediction, valid)
                 records.extend([primary, dense])

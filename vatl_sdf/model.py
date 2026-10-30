@@ -16,8 +16,8 @@ def rigid_transform(coords, parameters, half_bbox):
     return (torch.einsum('nij,nj->ni',rotation,coords*half_bbox)+parameters[:,3:])/half_bbox
 
 
-class MRASDFModel(nn.Module):
-    """Two named heads. Latent grids are indexed in physical (X,Y,Z) order."""
+class SDFModel(nn.Module):
+    """Single normalized-SDF head. Latent grids are indexed in physical (X,Y,Z) order."""
     def __init__(self, config, num_subjects):
         super().__init__()
         m = config['model']; self.model_config = m
@@ -40,11 +40,10 @@ class MRASDFModel(nn.Module):
             layers.append(layer)
         self.backbone = nn.Sequential(*layers)
         head_features = m['hidden_size']+latent_features
-        self.mra_head = nn.Linear(head_features,1)
         self.sdf_head = nn.Linear(head_features,1)
-        for head in (self.mra_head,self.sdf_head):
-            nn.init.uniform_(head.weight,-math.sqrt(6/m['hidden_size'])/m['omega_hidden'],math.sqrt(6/m['hidden_size'])/m['omega_hidden'])
-            nn.init.zeros_(head.bias)
+        bound = math.sqrt(6/m['hidden_size'])/m['omega_hidden']
+        nn.init.uniform_(self.sdf_head.weight,-bound,bound)
+        nn.init.zeros_(self.sdf_head.bias)
 
     def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True):
         if coords.ndim!=2 or coords.shape[1]!=3 or conditions.shape!=(len(coords),2):
@@ -70,11 +69,8 @@ class MRASDFModel(nn.Module):
         features = torch.cat([mod,conditions],dim=-1)
         hidden,_ = self.backbone((coords,features))
         shared = torch.cat([hidden,features],dim=-1)
-        mra = self.mra_head(shared)
-        if self.model_config['mra_activation']=='sigmoid':
-            mra = mra.sigmoid()
-        # SDF deliberately stays linear, signed, and unbounded.
-        output = torch.cat([mra,self.sdf_head(shared)],dim=-1)
+        # SDF deliberately stays linear, signed, and unbounded. Output shape (N, 1).
+        output = self.sdf_head(shared)
         auxiliary = [layer.latest_loss for layer in self.backbone if isinstance(layer,MoESineLayer)]
         moe = sum(auxiliary)/len(auxiliary) if auxiliary else output.sum()*0.
         return output,moe

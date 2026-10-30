@@ -18,5 +18,5 @@ source /users/zhangx/VATL_SDF/slurm/environment.sh
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 # Fixed seeds/settings; CUDA grid_sample backward is not bitwise deterministic.
 # Strict determinism is available with --device cpu --determinism strict.
-srun python -m mra_sdf_only.test_individual --num-test-subjects "$N" --output "$OUTPUT" \
+srun python -m vatl_sdf.test_individual --num-test-subjects "$N" --output "$OUTPUT" \
   --device cuda --determinism seeded "$@"

@@ -1,7 +1,7 @@
 """Coordinate convention shared by vessel graphs, masks and SDF volumes.
 
 Verified in Phase 0a (CONTEXT.md; job 46230, 552 subjects): node["pos"] is world mm
-in the frame of the segmentation sform (mask, SDF and MRA share shape and sform;
+in the frame of the segmentation sform (all subject volumes share shape and sform;
 qform agrees within 1.5e-5 mm). World -> voxel is inv(affine) of the segmentation;
 integer voxel indices are voxel centres, so the voxel containing a point is
 round(inv(affine) @ pos). No flip, permutation, half-voxel shift or index

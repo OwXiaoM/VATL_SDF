@@ -20,7 +20,7 @@ import pandas as pd
 from scipy import ndimage
 from scipy.ndimage import map_coordinates
 
-from mra_sdf_only.graph_coords import (MaskDistance, inside_mask, load_graph, vessel_mask, voxel_to_world,
+from vatl_sdf.graph_coords import (MaskDistance, inside_mask, load_graph, vessel_mask, voxel_to_world,
                                        world_to_voxel)
 
 ROOT = '/medias/medical/data/Atlas_training/v1'

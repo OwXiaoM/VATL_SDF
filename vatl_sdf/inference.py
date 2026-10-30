@@ -1,10 +1,11 @@
-"""Explicit two-channel inference; no anatomical masks or component filtering."""
+"""SDF inference and export (SDF + its zero-level mask); no anatomical masks or component filtering."""
 from pathlib import Path
 import numpy as np
 import torch
 import nibabel as nib
 from .config import condition_vector
 from . import CHANNELS
+from .graph_coords import normalize_world, voxel_to_world
 
 
 def world_grid(config, spacing=None):
@@ -20,8 +21,7 @@ def world_grid(config, spacing=None):
 def native_grid(image, config):
     shape = image.shape[:3]
     voxels = np.indices(shape).reshape(3,-1).T
-    center = nib.affines.apply_affine(image.affine,np.asarray(shape)/2.)
-    coords = (nib.affines.apply_affine(image.affine,voxels)-center)/(np.asarray(config['data']['world_bbox_mm'])/2.)
+    coords = normalize_world(voxel_to_world(image.affine,voxels),image.affine,shape,config['data']['world_bbox_mm'])
     return coords.astype(np.float32),shape,image.affine.copy()
 
 
@@ -40,12 +40,11 @@ def predict_field(model, coords, condition, config, subject_index=None, latent_o
 
 def export_fields(output, shape, affine, directory, tau, subject=False):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=False)
-    if output.shape!=(int(np.prod(shape)),2):raise ValueError('Expected exactly two output channels on the requested grid')
-    mra=output[:,CHANNELS['mra_intensity']].reshape(shape)
+    if output.shape!=(int(np.prod(shape)),1):raise ValueError('Expected exactly one SDF output channel on the requested grid')
     sdf=output[:,CHANNELS['vessel_sdf_normalized']].reshape(shape)*tau
     if not np.isfinite(output).all():raise ValueError('Nonfinite inference outputs')
-    names=('Subject_MRA_Reconstruction','Subject_VesselSDF','Subject_VesselMask') if subject else ('MRA_atlas','VesselSDF_atlas','VesselMask_atlas')
-    for name,data in zip(names,(mra.astype(np.float32),sdf.astype(np.float32),(sdf<0).astype(np.uint8))):
+    names=('Subject_VesselSDF','Subject_VesselMask') if subject else ('VesselSDF_atlas','VesselMask_atlas')
+    for name,data in zip(names,(sdf.astype(np.float32),(sdf<0).astype(np.uint8))):
         image=nib.Nifti1Image(data,affine);image.header.set_xyzt_units('mm');image.set_sform(affine,code=1)
         nib.save(image,directory/f'{name}.nii.gz')
     return directory

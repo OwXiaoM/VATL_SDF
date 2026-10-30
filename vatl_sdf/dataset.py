@@ -1,4 +1,9 @@
-"""Only MRA, SDF, age, sex and subject ID are consumed by this loader."""
+"""Only subject ID, SDF, vessel graph, age and sex are consumed by this loader.
+
+SDF voxels and graph nodes are mapped to normalized coordinates by the same function
+(graph_coords.normalize_world with the SDF affine), so both live in one coordinate system.
+The binary vessel mask is SDF < 0, which equals segmentation label 1 exactly (Phase 0a).
+"""
 from collections import OrderedDict
 from pathlib import Path
 import numpy as np
@@ -7,9 +12,10 @@ import nibabel as nib
 import torch
 from torch.utils.data import Dataset
 from .config import condition_vector
+from .graph_coords import load_graph, normalize_world, voxel_to_world
 from .splits import read_splits, ordered_rows
 
-REQUIRED_COLUMNS = ('subject_id', 'MRA', 'SDF', 'scan_age', 'sex')
+REQUIRED_COLUMNS = ('subject_id', 'SDF', 'Graph', 'scan_age', 'sex')
 
 
 def read_metadata(config):
@@ -39,7 +45,7 @@ def read_metadata(config):
     if frame.empty:
         raise ValueError('No declared training subjects remain')
     parent = Path(config['data']['tsv']).resolve().parent
-    for key in ('MRA','SDF'):
+    for key in ('SDF', 'Graph'):
         frame[key] = frame[key].map(lambda path: str((parent / path).resolve()))
         for path in frame[key]:
             if not Path(path).is_file():
@@ -49,74 +55,50 @@ def read_metadata(config):
     return frame.reset_index(drop=True)
 
 
-def normalize_mra(mra, config):
-    mra = np.asarray(mra,dtype=np.float32)
-    original_min,original_max = float(mra.min()),float(mra.max())
-    mode = config['data']['intensity_normalization']
-    if mode == 'preserve_unit_or_percentile':
-        if original_min >= 0 and original_max <= 1:
-            scale = 1.
-        else:
-            scale = float(np.percentile(np.maximum(mra,0),config['data']['intensity_percentile']))
-            if scale <= 0:
-                scale = original_max
-            if scale <= 0:
-                raise ValueError('Nonpositive MRA normalization scale')
-        mra = np.clip(mra / scale,0,1)
-    elif mode == 'unit':
-        if original_min < 0 or original_max > 1:
-            raise ValueError('MRA is outside [0,1] with unit normalization')
-        scale = 1.
-    else:
-        raise ValueError('Unknown intensity normalization mode')
-    return mra,scale
+def voxel_coordinates(indices, shape, affine, config):
+    """Normalized coordinates of flat voxel indices (voxel centres)."""
+    voxels = np.column_stack(np.unravel_index(indices, shape))
+    return normalize_world(voxel_to_world(affine, voxels), affine, shape, config['data']['world_bbox_mm']).astype(np.float32)
 
 
-def load_pair(row, config):
-    images = [nib.load(row[key]) for key in ('MRA','SDF')]
-    arrays = [np.asarray(image.dataobj,dtype=np.float32) for image in images]
-    arrays = [a[...,0] if a.ndim==4 and a.shape[-1]==1 else a for a in arrays]
-    if any(a.ndim != 3 for a in arrays) or arrays[0].shape != arrays[1].shape:
-        raise ValueError(f'{row["subject_id"]}: MRA/SDF shapes disagree or are not 3D')
-    if not np.allclose(images[0].affine,images[1].affine,rtol=1e-5,atol=1e-3):
-        raise ValueError(f'{row["subject_id"]}: MRA/SDF affines disagree')
-    affine = images[0].affine.copy()
+def load_subject(row, config):
+    image = nib.load(row['SDF'])
+    sdf = np.asarray(image.dataobj, dtype=np.float32)
+    if sdf.ndim == 4 and sdf.shape[-1] == 1:
+        sdf = sdf[..., 0]
+    if sdf.ndim != 3:
+        raise ValueError(f'{row["subject_id"]}: SDF is not 3D')
+    affine = image.affine.copy()
     if not np.isfinite(affine).all() or abs(np.linalg.det(affine[:3,:3])) < 1e-9:
         raise ValueError('Invalid spatial affine')
-    for image in images:
-        unit = image.header.get_xyzt_units()[0]
-        if unit not in ('mm','unknown'):
-            raise ValueError(f'Affine must use mm (or explicitly assumed unknown), got {unit}')
-    mra, sdf = arrays
-    if not np.isfinite(mra).all() or not np.isfinite(sdf).all():
-        raise ValueError('MRA and SDF must contain only finite values')
+    unit = image.header.get_xyzt_units()[0]
+    if unit not in ('mm','unknown'):
+        raise ValueError(f'Affine must use mm (or explicitly assumed unknown), got {unit}')
+    if not np.isfinite(sdf).all():
+        raise ValueError('SDF must contain only finite values')
     if not (np.any(sdf < 0) and np.any(sdf > 0)):
         raise ValueError('Expected both interior-negative and exterior-positive distances; verify SDF preprocessing')
-    original_min,original_max = float(mra.min()),float(mra.max())
-    mra,scale = normalize_mra(mra,config)
-    # Crop only by physical geometry, never by image intensity or anatomy.
-    shape = mra.shape
-    center = nib.affines.apply_affine(affine,np.asarray(shape)/2.)
-    valid = []
+    # Crop only by physical geometry, never by image values or anatomy.
+    shape = sdf.shape
     half = np.asarray(config['data']['world_bbox_mm'])/2.
-    for start in range(0,mra.size,262144):
-        indices = np.arange(start,min(start+262144,mra.size))
+    centre = voxel_to_world(affine, np.asarray(shape)/2.)
+    valid = []
+    for start in range(0,sdf.size,262144):
+        indices = np.arange(start,min(start+262144,sdf.size))
         voxels = np.column_stack(np.unravel_index(indices,shape))
-        coords = (nib.affines.apply_affine(affine,voxels)-center)/half
-        valid.append(indices[np.all(np.abs(coords)<=1.,axis=1)])
+        valid.append(indices[np.all(np.abs((voxel_to_world(affine,voxels)-centre)/half)<=1.,axis=1)])
     valid = np.concatenate(valid)
     if not valid.size:
         raise ValueError('No image voxels inside the physical bounding box')
+    graph = load_graph(row['Graph'])
+    graph['coords'] = normalize_world(graph['pos'], affine, shape, config['data']['world_bbox_mm']).astype(np.float32)
     report = {'subject_id':str(row['subject_id']), 'shape':list(shape),
-              'spacing_mm':nib.affines.voxel_sizes(affine).tolist(),
-              'header_units':[image.header.get_xyzt_units()[0] for image in images],
-              'mra_original_range':[original_min,original_max], 'mra_scale':scale,
-              'mra_exact_zero_fraction':float((arrays[0]==0).mean()),
+              'spacing_mm':nib.affines.voxel_sizes(affine).tolist(), 'header_units':unit,
               'sdf_range_mm':[float(sdf.min()),float(sdf.max())],
               'sdf_negative_voxels':int((sdf<0).sum()),'valid_voxels':int(valid.size),
-              'sdf_units_assumed_mm':True,
-              'sign_semantics':'negative_inside declared; cannot prove from a distance field alone'}
-    return {'mra':mra,'sdf':sdf,'affine':affine,'valid':valid,'report':report}
+              'graph_nodes':len(graph['pos']), 'graph_edges':len(graph['edges']),
+              'graph_nodes_in_bbox':int((np.abs(graph['coords'])<=1).all(1).sum())}
+    return {'sdf':sdf,'affine':affine,'valid':valid,'graph':graph,'report':report}
 
 
 def sample_pools(pools, fractions, count, rng):
@@ -143,33 +125,23 @@ def sample_pools(pools, fractions, count, rng):
                      'empty_pools':[k for k in names if not len(pools[k])]}
 
 
-def sample_tasks(pair, config, rng):
-    valid = pair['valid']; mra = pair['mra'].ravel(); sdf = pair['sdf'].ravel()
-    positives = mra[valid][mra[valid]>0]
-    threshold = float(np.quantile(positives,config['sampling']['mra']['bright_quantile'])) if positives.size else float('inf')
-    bright = valid[(mra[valid]>0)&(mra[valid]>=threshold)]
-    mi, mr = sample_pools({'uniform':valid,'bright':bright},config['sampling']['mra']['fractions'],config['sampling']['mra']['points'],rng)
+def sample_sdf(subject, config, rng):
+    valid = subject['valid']; sdf = subject['sdf'].ravel()
     band = config['sampling']['sdf']['surface_band_mm']
     surface = valid[np.abs(sdf[valid])<=band]
     interior = valid[sdf[valid]<0]
     outside = valid[sdf[valid]>band]
-    si, sr = sample_pools({'surface':surface,'interior':interior,'outside':outside},config['sampling']['sdf']['fractions'],config['sampling']['sdf']['points'],rng)
-    mr['bright_threshold'] = threshold if np.isfinite(threshold) else None
-    mr['uniform_bright_overlap_voxels'] = int(bright.size)
+    si, sr = sample_pools({'surface':surface,'interior':interior,'outside':outside},
+                          config['sampling']['sdf']['fractions'],config['sampling']['sdf']['points'],rng)
     sr['surface_interior_overlap_voxels'] = int(((sdf[valid]<0)&(np.abs(sdf[valid])<=band)).sum())
     sr['outside_definition'] = 'SDF > surface_band_mm; surface/interior intentionally overlap'
     sr['sampled_negative_fraction'] = float((sdf[si]<0).mean())
     sr['sampled_surface_fraction'] = float((np.abs(sdf[si])<=band).mean())
-    def coordinates(indices):
-        voxels = np.column_stack(np.unravel_index(indices,pair['mra'].shape))
-        center = nib.affines.apply_affine(pair['affine'],np.asarray(pair['mra'].shape)/2.)
-        return ((nib.affines.apply_affine(pair['affine'],voxels)-center)/(np.asarray(config['data']['world_bbox_mm'])/2.)).astype(np.float32)
-    return {'mra_coords':coordinates(mi), 'mra_target':mra[mi,None].copy(),
-            'sdf_coords':coordinates(si), 'sdf_target_mm':sdf[si,None].copy(),
-            'sampling_report':{'mra':mr,'sdf':sr}}
+    return {'sdf_coords':voxel_coordinates(si,subject['sdf'].shape,subject['affine'],config),
+            'sdf_target_mm':sdf[si,None].copy(), 'sampling_report':{'sdf':sr}}
 
 
-class MRASDFDataset(Dataset):
+class SDFGraphDataset(Dataset):
     def __init__(self, config, frame=None):
         self.config = config
         declared = read_metadata(config)
@@ -182,19 +154,22 @@ class MRASDFDataset(Dataset):
     def __len__(self):
         return len(self.frame)
 
-    def __getitem__(self, index):
+    def subject(self, index):
         if index not in self.cache:
-            pair = load_pair(self.frame.iloc[index],self.config)
+            subject = load_subject(self.frame.iloc[index],self.config)
             if self.config['data']['cache_subjects'] > 0:
-                self.cache[index] = pair
+                self.cache[index] = subject
                 while len(self.cache)>self.config['data']['cache_subjects']:
                     self.cache.popitem(last=False)
-        else:
-            pair = self.cache[index]
-            self.cache.move_to_end(index)
+            return subject
+        self.cache.move_to_end(index)
+        return self.cache[index]
+
+    def __getitem__(self, index):
+        subject = self.subject(index)
         # Independent of worker scheduling/rank; fully reproducible at epoch boundaries.
         rng = np.random.default_rng(np.random.SeedSequence([self.config['seed'],self.epoch,index]))
-        result = sample_tasks(pair,self.config,rng)
+        result = sample_sdf(subject,self.config,rng)
         result['sampling_report'].update({'subject_index':int(index),'epoch':int(self.epoch)})
         result['condition'] = condition_vector(self.config,self.frame.iloc[index].scan_age,self.frame.iloc[index].sex)
         result['subject_index'] = int(index)
@@ -202,8 +177,7 @@ class MRASDFDataset(Dataset):
 
 
 def collate_subjects(items):
-    result = {k:torch.from_numpy(np.stack([item[k] for item in items])) for k in
-              ('mra_coords','mra_target','sdf_coords','sdf_target_mm','condition')}
+    result = {k:torch.from_numpy(np.stack([item[k] for item in items])) for k in ('sdf_coords','sdf_target_mm','condition')}
     result['subject_index'] = torch.tensor([item['subject_index'] for item in items],dtype=torch.long)
     result['sampling_report'] = [item['sampling_report'] for item in items]
     return result

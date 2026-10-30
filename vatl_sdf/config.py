@@ -1,4 +1,3 @@
-from copy import deepcopy
 from pathlib import Path
 import yaml
 import numpy as np
@@ -26,28 +25,23 @@ def validate(c):
         raise ValueError('Only negative-inside SDF targets in mm are supported')
     if not np.isfinite(c['sdf']['truncation_mm']) or c['sdf']['truncation_mm'] <= 0:
         raise ValueError('SDF truncation must be positive and finite')
-    for key in ('mra', 'sdf'):
-        s = c['sampling'][key]
-        if isinstance(s['points'], bool) or not isinstance(s['points'], int) or s['points'] <= 0:
-            raise ValueError('Each task requires a positive integer point count')
-        names = {'uniform', 'bright'} if key == 'mra' else {'surface', 'interior', 'outside'}
-        f = s['fractions']
-        if set(f) != names or not all(np.isfinite(v) and v >= 0 for v in f.values()) or not np.isclose(sum(f.values()), 1):
-            raise ValueError(f'Invalid {key} fractions')
-    if not 0 <= c['sampling']['mra']['bright_quantile'] <= 1 or c['sampling']['sdf']['surface_band_mm'] <= 0:
-        raise ValueError('Invalid sampling band or quantile')
-    for weight in ('mra_weight', 'sdf_weight', 'moe_weight', 'tf_weight'):
+    s = c['sampling']['sdf']
+    if isinstance(s['points'], bool) or not isinstance(s['points'], int) or s['points'] <= 0:
+        raise ValueError('sampling.sdf.points must be a positive integer')
+    f = s['fractions']
+    if set(f) != {'surface', 'interior', 'outside'} or not all(np.isfinite(v) and v >= 0 for v in f.values()) \
+            or not np.isclose(sum(f.values()), 1):
+        raise ValueError('Invalid sdf fractions')
+    if s['surface_band_mm'] <= 0:
+        raise ValueError('Invalid surface band')
+    for weight in ('sdf_weight', 'moe_weight', 'tf_weight'):
         if not np.isfinite(c['loss'][weight]) or c['loss'][weight] < 0:
             raise ValueError('Loss weights must be finite and nonnegative')
     if c['model']['moe_k'] < 1 or c['model']['moe_k'] > c['model']['num_experts']:
         raise ValueError('Invalid top-k routing')
-    if c['model']['mra_activation'] not in ('linear', 'sigmoid'):
-        raise ValueError('Invalid MRA activation')
     for size in c['data']['world_bbox_mm'] + c['atlas']['spacing_mm']:
         if not np.isfinite(size) or size <= 0:
             raise ValueError('Bounding box and spacing must be positive')
-    if not 0 < c['data']['intensity_percentile'] <= 100:
-        raise ValueError('Intensity percentile must be in (0,100]')
     if c['data']['age_range'][1] <= c['data']['age_range'][0]:
         raise ValueError('Invalid age range')
     for key in ('subjects_per_rank', 'task_points_per_step', 'epochs', 'checkpoint_every'):

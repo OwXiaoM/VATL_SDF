@@ -9,17 +9,17 @@ from unittest.mock import patch
 import pandas as pd
 import yaml
 
-from mra_sdf_only.config import load_config
-from mra_sdf_only.dataset import read_metadata, MRASDFDataset
-from mra_sdf_only.splits import read_splits, ordered_rows, check_resume_subjects
-from mra_sdf_only.test_individual import select_subjects
-from mra_sdf_only.train import train
+from vatl_sdf.config import load_config
+from vatl_sdf.dataset import read_metadata, SDFGraphDataset
+from vatl_sdf.splits import read_splits, ordered_rows, check_resume_subjects
+from vatl_sdf.test_individual import select_subjects
+from vatl_sdf.train import train
 from tests.test_pipeline import tiny_config
 
 SPLIT = Path('/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml')
 KEY = 'mra_atlas_synthseg_label_t1_fast.subject_ids'
-BASE = Path('configs/ablations/02_sdf_only.yaml')
-ORIGINAL = Path('/medias/medical/data/Atlas_training/Cinema_output/original_leonardo/20261027_144056_557977_ablation_02_sdf_only_62280701/config_final.yaml')
+BASE = Path('configs/sdf/00_sdf_baseline.yaml')
+LEGACY = Path('configs/ablations/legacy_mra/02_sdf_only.yaml')
 
 
 class SplitTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(frame.subject_id.tolist(),splits['train'])
         self.assertFalse(set(frame.subject_id) & set(splits['val']))
         self.assertFalse(set(splits['train']) & set(splits['val']))
-        self.assertEqual(config['loss']['mra_weight'],0)
+        self.assertFalse(any('mra' in key for section in config.values() if isinstance(section,dict) for key in section))
         self.assertIsNone(config['resume']);self.assertTrue(config['require_fresh_start'])
         selected3 = select_subjects(config['data']['tsv'],frame,3,SPLIT,KEY+'.val')
         selected5 = select_subjects(config['data']['tsv'],frame,5,SPLIT,KEY+'.val')
@@ -45,7 +45,7 @@ class SplitTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'contaminated or incompatible'):
             check_resume_subjects({'metadata':contaminated.to_dict(orient='records')},frame)
         with self.assertRaisesRegex(ValueError,'outside the declared'):
-            MRASDFDataset(config,frame=selected3)
+            SDFGraphDataset(config,frame=selected3)
 
     def test_overlap_duplicate_wrong_count_and_missing_ids_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,19 +71,21 @@ class SplitTests(unittest.TestCase):
 
     def test_fresh_start_blocks_resume_before_loading_weights(self):
         config=load_config(BASE);config['resume']='/any/contaminated/checkpoint.pt'
-        with patch('mra_sdf_only.train.torch.load') as load:
+        with patch('vatl_sdf.train.torch.load') as load:
             with self.assertRaisesRegex(ValueError,'fresh start'):train(config)
             load.assert_not_called()
 
-    # The original run lives on Leonardo; copy its config_final.yaml here to enable this check.
-    # output_root is machine-specific and excluded since the move to the EURECOM cluster.
-    @unittest.skipUnless(ORIGINAL.is_file(), f'Original SDF-only config not present: {ORIGINAL}')
-    def test_only_split_and_run_identity_changed_from_original_sdf_only(self):
-        old=yaml.safe_load(ORIGINAL.read_text());new=load_config(BASE)
-        for section in ('model','loss','sampling','sdf','optimizer','training','atlas','seed','device'):
-            self.assertEqual(old[section],new[section],section)
-        for key,value in old['data'].items():
-            if key!='subject_ids':self.assertEqual(value,new['data'][key],key)
+    def test_baseline_differs_from_legacy_sdf_only_only_as_documented(self):
+        old=yaml.safe_load(LEGACY.read_text());new=load_config(BASE)
+        for section in ('model','sdf','optimizer','atlas','seed','device','require_fresh_start'):
+            old_section=old[section]
+            if section=='model':old_section={k:v for k,v in old_section.items() if k!='mra_activation'}
+            self.assertEqual(old_section,new[section],section)
+        self.assertEqual(old['sampling']['sdf'],new['sampling']['sdf']);self.assertEqual(set(new['sampling']),{'sdf'})
+        self.assertEqual({k:v for k,v in old['training'].items() if k!='gradient_diagnostics_every'},new['training'])
+        self.assertEqual({k:v for k,v in old['data'].items() if not k.startswith('intensity')},new['data'])
+        self.assertEqual((old['loss']['sdf_weight'],new['loss']['sdf_weight']),(0.1,1.0))  # documented change
+        for key in ('moe_weight','tf_weight','sdf_metric'):self.assertEqual(old['loss'][key],new['loss'][key])
 
 
 if __name__=='__main__':unittest.main()

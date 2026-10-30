@@ -13,4 +13,4 @@ set -euo pipefail
 source /users/zhangx/VATL_SDF/slurm/environment.sh
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
 srun python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-  -m mra_sdf_only.train_ddp --config configs/ablations/02_sdf_only.yaml "$@"
+  -m vatl_sdf.train_ddp --config configs/ablations/02_sdf_only.yaml "$@"

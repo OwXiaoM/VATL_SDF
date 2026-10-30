@@ -21,4 +21,4 @@ export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
 CONFIG="configs/ablations/${ABLATION}.yaml"
 echo "Training ablation: $ABLATION; config: $CONFIG"
 srun python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 \
-  -m mra_sdf_only.train_ddp --config "$CONFIG" "$@"
+  -m vatl_sdf.train_ddp --config "$CONFIG" "$@"

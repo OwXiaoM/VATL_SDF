@@ -9,7 +9,7 @@ import nibabel as nib
 import numpy as np
 
 from analysis.phase0_graph.correspondence import loops
-from mra_sdf_only.graph_coords import (MaskDistance, RADIUS_SCALE_TO_MM, edge_samples, inside_mask, load_graph,
+from vatl_sdf.graph_coords import (MaskDistance, RADIUS_SCALE_TO_MM, edge_samples, inside_mask, load_graph,
                                        mask_support, nearest_voxel, normalize_world, supported_edges, vessel_mask,
                                        voxel_to_world, world_to_voxel)
 

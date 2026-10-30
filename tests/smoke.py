@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 import torch
 import yaml
-from mra_sdf_only.config import load_config
-from mra_sdf_only.train import train
+from vatl_sdf.config import load_config
+from vatl_sdf.train import train
 from tests.test_pipeline import tiny_config
 
 
@@ -29,9 +29,9 @@ def main():
         if a.real:
             c=load_config('config.yaml')
             c['data'].update(max_subjects=2,num_workers=0)
-            c['sampling']['mra']['points']=256;c['sampling']['sdf']['points']=256
+            c['sampling']['sdf']['points']=256
             c['model'].update(latent_shape=[8,2,2,2],hidden_size=32,hidden_layers=3,modulated_layers=[1,3])
-            c['training'].update(epochs=2,subjects_per_rank=1,task_points_per_step=256,max_steps=2,atlas_every=0,checkpoint_every=1)
+            c['training'].update(epochs=2,subjects_per_rank=1,task_points_per_step=256,max_steps=2,atlas_every=0,checkpoint_every=1,stop_after_epoch=None)
             c['atlas'].update(spacing_mm=[8,8,8],chunk_size=20000)
         else:
             c=tiny_config(root)
@@ -44,7 +44,7 @@ def main():
         if world==1 and not a.real:
             # Resume from step 1 and compare to an uninterrupted two-step run.
             original=torch.load(next(Path(directory).glob('checkpoint_step_*.pt')),map_location='cpu',weights_only=False)
-            resumed=c.copy();resumed['resume']=str(next(Path(directory).glob('checkpoint_step_*.pt')))
+            resumed=c.copy();resumed['resume']=str(next(Path(directory).glob('checkpoint_step_*.pt')));resumed['require_fresh_start']=False
             resumed['training']=dict(c['training'],max_steps=2)
             resumed_dir=train(resumed)
             result=torch.load(Path(resumed_dir)/'checkpoint_step_00000002.pt',map_location='cpu',weights_only=False)

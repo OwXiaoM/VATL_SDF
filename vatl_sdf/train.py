@@ -14,9 +14,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 import yaml
 from .config import load_config
-from .dataset import MRASDFDataset, collate_subjects
-from .model import MRASDFModel
-from .losses import task_losses, gradient_diagnostics
+from .dataset import SDFGraphDataset, collate_subjects
+from .model import SDFModel
+from .losses import sdf_losses
 from .inference import generate_atlas
 from .splits import check_resume_subjects
 
@@ -63,10 +63,8 @@ def train(config):
     if config.get('require_fresh_start') and config.get('resume'):
         raise ValueError('Corrected baseline requires a fresh start; no checkpoint initialization/resume allowed')
     rank,world,device=setup(config)
-    if world>1 and config['training']['gradient_diagnostics_every']:
-        raise ValueError('Optional per-task autograd diagnostics are single-device only; keep disabled for DDP')
     checkpoint=torch.load(config['resume'],map_location='cpu',weights_only=False) if config['resume'] else None
-    data=MRASDFDataset(config);frame=data.frame
+    data=SDFGraphDataset(config);frame=data.frame
     if checkpoint:
         check_resume_subjects(checkpoint, frame)
         if checkpoint['world_size']!=world:raise ValueError('Exact resume requires the same world size')
@@ -86,7 +84,7 @@ def train(config):
             frame.to_csv(Path(directory)/'training_metadata.tsv',sep='\t',index=False)
     if world>1:
         objects=[directory];dist.broadcast_object_list(objects,src=0);directory=objects[0]
-    model=MRASDFModel(config,len(data)).to(device)
+    model=SDFModel(config,len(data)).to(device)
     if checkpoint:model.load_state_dict(checkpoint['model'])
     base_params=[p for name,p in model.named_parameters() if name not in ('latents','transforms')]
     groups=[{'params':base_params,'lr':config['optimizer']['lr_model']},
@@ -127,35 +125,26 @@ def train(config):
                     for report in batch['sampling_report']:stream.write(json.dumps(report)+'\n')
             indices=batch['subject_index'].to(device)
             conditions=batch['condition'].to(device)
-            tasks={}
-            for name,target in (('mra','mra_target'),('sdf','sdf_target_mm')):
-                b,p,_=batch[f'{name}_coords'].shape
-                coords=batch[f'{name}_coords'].reshape(-1,3).to(device)
-                targets=batch[target].reshape(-1,1).to(device)
-                ids=indices.repeat_interleave(p);cond=conditions.repeat_interleave(p,dim=0)
-                perm=torch.randperm(len(coords),generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank)).to(device)
-                tasks[name]=(coords[perm],targets[perm],ids[perm],cond[perm])
-            nm,ns=len(tasks['mra'][0]),len(tasks['sdf'][0])
-            steps=max(math.ceil(nm/config['training']['task_points_per_step']),math.ceil(ns/config['training']['task_points_per_step']))
-            if steps>min(nm,ns):raise ValueError('Task counts too imbalanced to form nonempty independent task minibatches')
+            b,p,_=batch['sdf_coords'].shape
+            coords=batch['sdf_coords'].reshape(-1,3).to(device)
+            targets=batch['sdf_target_mm'].reshape(-1,1).to(device)
+            ids=indices.repeat_interleave(p);cond=conditions.repeat_interleave(p,dim=0)
+            perm=torch.randperm(len(coords),generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank)).to(device)
+            arrays=(coords[perm],targets[perm],ids[perm],cond[perm])
+            steps=math.ceil(len(coords)/config['training']['task_points_per_step'])
             for inner in range(steps):
                 if epoch==position['epoch'] and batch_index==position['batch'] and inner<position['inner']:continue
-                slices={name:tuple(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays) for name,arrays in tasks.items()}
-                mc,mt,mi,mv=slices['mra'];sc,st,si,sv=slices['sdf']
+                sc,st,si,sv=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
                 optimizer.zero_grad(set_to_none=True)
-                output,moe=network(torch.cat([mc,sc]),torch.cat([mi,si]),torch.cat([mv,sv]))
-                parts=task_losses(output,len(mc),mt,st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
-                diagnostics={}
-                every=config['training']['gradient_diagnostics_every']
-                if every and step%every==0:diagnostics=gradient_diagnostics(parts,model.backbone[0].linear.weight)
+                output,moe=network(sc,si,sv)
+                parts=sdf_losses(output,st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
                 if not torch.isfinite(parts['total']):raise FloatingPointError('Nonfinite loss')
                 parts['total'].backward();optimizer.step();step+=1
                 values=torch.stack([v.detach() for v in parts.values()])
                 if world>1:dist.all_reduce(values);values/=world
                 if rank==0:
                     report={'epoch':epoch,'batch':batch_index,'inner':inner,'step':step,
-                        'mra_points_per_rank':len(mc),'sdf_points_per_rank':len(sc),
-                        **dict(zip(parts,values.cpu().tolist())),**diagnostics}
+                        'sdf_points_per_rank':len(sc),**dict(zip(parts,values.cpu().tolist()))}
                     with (Path(directory)/'losses.jsonl').open('a') as stream:stream.write(json.dumps(report)+'\n')
                     if step%10==0 or step==1:print(json.dumps(report),flush=True)
                 if limit is not None and step>=limit:

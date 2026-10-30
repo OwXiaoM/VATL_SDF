@@ -12,10 +12,10 @@ import pandas as pd
 import torch
 import yaml
 
-from mra_sdf_only.config import load_config, condition_vector
-from mra_sdf_only.individual_metrics import component_metrics, evaluate_sdf, summarize
-from mra_sdf_only.model import MRASDFModel, rigid_transform
-from mra_sdf_only.test_individual import (select_subjects, observation_partition, fit_subject,
+from vatl_sdf.config import load_config, condition_vector
+from vatl_sdf.individual_metrics import component_metrics, evaluate_sdf, summarize
+from vatl_sdf.model import SDFModel, rigid_transform
+from vatl_sdf.test_individual import (select_subjects, observation_partition, fit_subject,
     forward_sdf, parameter_digest, load_reference, infer_native, save_volume, run)
 
 
@@ -23,7 +23,6 @@ class IndividualTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
         self.config = load_config('config.yaml')
-        self.config['loss']['mra_weight'] = 0.
         self.config['data']['world_bbox_mm'] = [12, 12, 12]
         self.config['model'].update(latent_shape=[4, 2, 2, 2], hidden_size=12, hidden_layers=3,
                                     modulated_layers=[1, 3], use_moe=True)
@@ -41,7 +40,7 @@ class IndividualTests(unittest.TestCase):
             rows.append({'subject_id':ident, 'scan_age':30.+i, 'sex':'M', 'SDF':str(path)})
         self.metadata = self.root/'metadata.tsv'; pd.DataFrame(rows).to_csv(self.metadata, sep='\t', index=False)
         self.split = self.root/'split.yaml'; self.split.write_text(yaml.safe_dump({'cohort':{'train':['train'],'val':self.ids,'test':[]}}))
-        torch.manual_seed(9); self.model = MRASDFModel(self.config, 1).eval()
+        torch.manual_seed(9); self.model = SDFModel(self.config, 1).eval()
         for p in self.model.parameters():p.requires_grad_(False)
 
     def tearDown(self):
@@ -71,7 +70,7 @@ class IndividualTests(unittest.TestCase):
         result = forward_sdf(self.model, points, cond, latent, tf)
         mapped = rigid_transform(points, tf.expand(2,-1), self.model.half_bbox)
         expected = self.model(mapped, torch.zeros(2,dtype=torch.long), torch.tensor(cond).expand(2,-1),
-                              latent_override=latent, apply_transform=False)[0][:,1]
+                              latent_override=latent, apply_transform=False)[0][:,0]
         torch.testing.assert_close(result, expected)
 
     def test_only_external_parameters_change(self):
@@ -112,7 +111,7 @@ class IndividualTests(unittest.TestCase):
         row = pd.read_csv(self.metadata, sep='\t').iloc[0]
         image, sdf, coords, valid = load_reference(row, config)
         self.assertTrue(valid.any()); self.assertFalse(valid.all())
-        model = MRASDFModel(config, 1).eval()
+        model = SDFModel(config, 1).eval()
         for p in model.parameters():p.requires_grad_(False)
         result = infer_native(model, coords, valid, condition_vector(config, 30, 'M'),
                               model.latents[:1].detach(), torch.zeros(1,6), config, self.settings)

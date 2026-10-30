@@ -12,7 +12,7 @@
 set -euo pipefail
 source /users/zhangx/VATL_SDF/slurm/environment.sh
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8 ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1 PYTHONUNBUFFERED=1
-srun python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 -m mra_sdf_only.train_ddp --config config.yaml "$@"
+srun python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node=4 -m vatl_sdf.train_ddp --config config.yaml "$@"
 
 #sbatch slurm/train_ablation_4gpu.sh 00_baseline
 #sbatch slurm/train_ablation_4gpu.sh 01_sdf_weight_1

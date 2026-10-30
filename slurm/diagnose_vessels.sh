@@ -9,9 +9,9 @@ if [[ -e "$DESTINATION" ]]; then
   exit 2
 fi
 mkdir -p "$DESTINATION"
-python -m mra_sdf_only.build_atlas --checkpoint "$CHECKPOINT" \
+python -m vatl_sdf.build_atlas --checkpoint "$CHECKPOINT" \
   --output "$DESTINATION/subject_native" --subject-id "$SUBJECT_ID"
-python -m mra_sdf_only.build_atlas --checkpoint "$CHECKPOINT" \
+python -m vatl_sdf.build_atlas --checkpoint "$CHECKPOINT" \
   --output "$DESTINATION/atlas_1mm" --spacing 1 1 1
-python -m mra_sdf_only.build_atlas --checkpoint "$CHECKPOINT" \
+python -m vatl_sdf.build_atlas --checkpoint "$CHECKPOINT" \
   --output "$DESTINATION/atlas_05mm" --spacing 0.5 0.5 0.5

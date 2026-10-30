@@ -5,7 +5,7 @@
 # inv(affine) of the segmentation (last modality), centre = affine @ (shape / 2),
 # radius * graph_supervision.radius.scale_to_mm (default 1.0).
 # Phase 0a verified this convention; radius is already mm. The maintained implementation is
-# mra_sdf_only/graph_coords.py.
+# vatl_sdf/graph_coords.py.
 
 """Cache and sample subject vessel graphs in normalized atlas coordinates.
 

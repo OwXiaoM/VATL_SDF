@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.phase0_graph.diagnose_checkpoint import normalized, select_subjects, subject_grid
-from mra_sdf_only.inference import native_grid
+from vatl_sdf.inference import native_grid
 
 AFFINE = np.array([[0.9, 0.01, 0, -100], [0, 0.93, 0.1, -90], [0, 0, 0.8, 5], [0, 0, 0, 1.]])
 SHAPE = (6, 5, 4)

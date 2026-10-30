@@ -21,10 +21,10 @@ import torch
 from scipy import ndimage as ndi
 from scipy.ndimage import map_coordinates
 
-from mra_sdf_only import CHANNELS
-from mra_sdf_only.config import condition_vector
-from mra_sdf_only.inference import generate_atlas, predict_field
-from mra_sdf_only.model import MRASDFModel
+from vatl_sdf import CHANNELS
+from vatl_sdf.config import condition_vector
+from vatl_sdf.inference import generate_atlas, predict_field
+from vatl_sdf.model import SDFModel
 
 GRAPH_DIR = Path('/medias/medical/data/Atlas_training/v1/graph')
 SDF_DIR = Path('/medias/medical/data/Atlas_training/v1/sdf')
@@ -132,7 +132,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     checkpoint = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
     config, frame = checkpoint['config'], pd.DataFrame(checkpoint['metadata'])
-    model = MRASDFModel(config, len(frame)).to(a.device)
+    model = SDFModel(config, len(frame)).to(a.device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
     subjects = a.subjects or select_subjects(frame)
