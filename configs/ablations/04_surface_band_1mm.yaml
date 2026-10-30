@@ -2,11 +2,11 @@
 # All other settings match 00_baseline.yaml. Train from scratch.
 seed: 42
 device: cuda
-output_root: /leonardo_scratch/large/userexternal/xzhang01/Cinema_output/mra_sdf_only
+output_root: /medias/medical/data/Atlas_training/Cinema_output/mra_sdf_only
 run_name: ablation_04_surface_band_1mm
 resume: null
 data:
-  tsv: /leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv
+  tsv: /medias/medical/data/Atlas_training/v1/ixi_metadata_label_t1_fast_sdf.tsv
   subject_ids: null # optional YAML list of IDs; otherwise all valid metadata rows
   max_subjects: null
   world_bbox_mm: [240, 240, 120]

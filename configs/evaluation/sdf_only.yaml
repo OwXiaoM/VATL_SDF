@@ -1,7 +1,7 @@
 # All settings fixed before observing test results. Paths may be overridden by CLI.
 checkpoint: null # REQUIRED: explicitly supply a new 497-subject checkpoint with --checkpoint
-metadata: /leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv
-split_yaml: /leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml
+metadata: /medias/medical/data/Atlas_training/v1/ixi_metadata_label_t1_fast_sdf.tsv
+split_yaml: /medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml
 split_key: mra_atlas_synthseg_label_t1_fast.subject_ids.val
 seed: 20261030
 block_size_voxels: 8

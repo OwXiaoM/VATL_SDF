@@ -16,9 +16,10 @@ from mra_sdf_only.test_individual import select_subjects
 from mra_sdf_only.train import train
 from tests.test_pipeline import tiny_config
 
-SPLIT = Path('/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml')
+SPLIT = Path('/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml')
 KEY = 'mra_atlas_synthseg_label_t1_fast.subject_ids'
 BASE = Path('configs/ablations/02_sdf_only.yaml')
+ORIGINAL = Path('/medias/medical/data/Atlas_training/Cinema_output/original_leonardo/20261027_144056_557977_ablation_02_sdf_only_62280701/config_final.yaml')
 
 
 class SplitTests(unittest.TestCase):
@@ -74,11 +75,12 @@ class SplitTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'fresh start'):train(config)
             load.assert_not_called()
 
+    # The original run lives on Leonardo; copy its config_final.yaml here to enable this check.
+    # output_root is machine-specific and excluded since the move to the EURECOM cluster.
+    @unittest.skipUnless(ORIGINAL.is_file(), f'Original SDF-only config not present: {ORIGINAL}')
     def test_only_split_and_run_identity_changed_from_original_sdf_only(self):
-        original = Path('/leonardo_scratch/large/userexternal/xzhang01/Cinema_output/mra_sdf_only/20261027_144056_557977_ablation_02_sdf_only_62280701/config_final.yaml')
-        self.assertTrue(original.is_file())
-        old=yaml.safe_load(original.read_text());new=load_config(BASE)
-        for section in ('model','loss','sampling','sdf','optimizer','training','atlas','seed','device','output_root'):
+        old=yaml.safe_load(ORIGINAL.read_text());new=load_config(BASE)
+        for section in ('model','loss','sampling','sdf','optimizer','training','atlas','seed','device'):
             self.assertEqual(old[section],new[section],section)
         for key,value in old['data'].items():
             if key!='subject_ids':self.assertEqual(value,new['data'][key],key)

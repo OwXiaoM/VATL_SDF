@@ -12,51 +12,51 @@
       "subject_id": "IXI403-Guys-0965",
       "scan_age": 53.54,
       "sex": "F",
-      "MRA": "/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI403-Guys-0965-MRA.nii.gz",
-      "T1": "/leonardo/home/userexternal/xzhang01/data/v1/data/T1/IXI403-Guys-0965-T1.nii.gz",
-      "Seg": "/leonardo/home/userexternal/xzhang01/data/v1/mask/fast/IXI403-Guys-0965-Mask.nii.gz",
-      "Graph": "/leonardo/home/userexternal/xzhang01/data/v1/graph/IXI403-Guys-0965-Graph.pkl",
-      "SDF": "/leonardo/home/userexternal/xzhang01/data/v1/sdf/IXI403-Guys-0965-Mask.nii.gz"
+      "MRA": "/medias/medical/data/Atlas_training/v1/data/MRA/IXI403-Guys-0965-MRA.nii.gz",
+      "T1": "/medias/medical/data/Atlas_training/v1/data/T1/IXI403-Guys-0965-T1.nii.gz",
+      "Seg": "/medias/medical/data/Atlas_training/v1/mask/fast/IXI403-Guys-0965-Mask.nii.gz",
+      "Graph": "/medias/medical/data/Atlas_training/v1/graph/IXI403-Guys-0965-Graph.pkl",
+      "SDF": "/medias/medical/data/Atlas_training/v1/sdf/IXI403-Guys-0965-Mask.nii.gz"
     },
     {
       "subject_id": "IXI037-Guys-0704",
       "scan_age": 37.21,
       "sex": "F",
-      "MRA": "/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI037-Guys-0704-MRA.nii.gz",
-      "T1": "/leonardo/home/userexternal/xzhang01/data/v1/data/T1/IXI037-Guys-0704-T1.nii.gz",
-      "Seg": "/leonardo/home/userexternal/xzhang01/data/v1/mask/fast/IXI037-Guys-0704-Mask.nii.gz",
-      "Graph": "/leonardo/home/userexternal/xzhang01/data/v1/graph/IXI037-Guys-0704-Graph.pkl",
-      "SDF": "/leonardo/home/userexternal/xzhang01/data/v1/sdf/IXI037-Guys-0704-Mask.nii.gz"
+      "MRA": "/medias/medical/data/Atlas_training/v1/data/MRA/IXI037-Guys-0704-MRA.nii.gz",
+      "T1": "/medias/medical/data/Atlas_training/v1/data/T1/IXI037-Guys-0704-T1.nii.gz",
+      "Seg": "/medias/medical/data/Atlas_training/v1/mask/fast/IXI037-Guys-0704-Mask.nii.gz",
+      "Graph": "/medias/medical/data/Atlas_training/v1/graph/IXI037-Guys-0704-Graph.pkl",
+      "SDF": "/medias/medical/data/Atlas_training/v1/sdf/IXI037-Guys-0704-Mask.nii.gz"
     },
     {
       "subject_id": "IXI050-Guys-0711",
       "scan_age": 63.19,
       "sex": "M",
-      "MRA": "/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI050-Guys-0711-MRA.nii.gz",
-      "T1": "/leonardo/home/userexternal/xzhang01/data/v1/data/T1/IXI050-Guys-0711-T1.nii.gz",
-      "Seg": "/leonardo/home/userexternal/xzhang01/data/v1/mask/fast/IXI050-Guys-0711-Mask.nii.gz",
-      "Graph": "/leonardo/home/userexternal/xzhang01/data/v1/graph/IXI050-Guys-0711-Graph.pkl",
-      "SDF": "/leonardo/home/userexternal/xzhang01/data/v1/sdf/IXI050-Guys-0711-Mask.nii.gz"
+      "MRA": "/medias/medical/data/Atlas_training/v1/data/MRA/IXI050-Guys-0711-MRA.nii.gz",
+      "T1": "/medias/medical/data/Atlas_training/v1/data/T1/IXI050-Guys-0711-T1.nii.gz",
+      "Seg": "/medias/medical/data/Atlas_training/v1/mask/fast/IXI050-Guys-0711-Mask.nii.gz",
+      "Graph": "/medias/medical/data/Atlas_training/v1/graph/IXI050-Guys-0711-Graph.pkl",
+      "SDF": "/medias/medical/data/Atlas_training/v1/sdf/IXI050-Guys-0711-Mask.nii.gz"
     },
     {
       "subject_id": "IXI426-IOP-1011",
       "scan_age": 23.11,
       "sex": "F",
-      "MRA": "/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI426-IOP-1011-MRA.nii.gz",
-      "T1": "/leonardo/home/userexternal/xzhang01/data/v1/data/T1/IXI426-IOP-1011-T1.nii.gz",
-      "Seg": "/leonardo/home/userexternal/xzhang01/data/v1/mask/fast/IXI426-IOP-1011-Mask.nii.gz",
-      "Graph": "/leonardo/home/userexternal/xzhang01/data/v1/graph/IXI426-IOP-1011-Graph.pkl",
-      "SDF": "/leonardo/home/userexternal/xzhang01/data/v1/sdf/IXI426-IOP-1011-Mask.nii.gz"
+      "MRA": "/medias/medical/data/Atlas_training/v1/data/MRA/IXI426-IOP-1011-MRA.nii.gz",
+      "T1": "/medias/medical/data/Atlas_training/v1/data/T1/IXI426-IOP-1011-T1.nii.gz",
+      "Seg": "/medias/medical/data/Atlas_training/v1/mask/fast/IXI426-IOP-1011-Mask.nii.gz",
+      "Graph": "/medias/medical/data/Atlas_training/v1/graph/IXI426-IOP-1011-Graph.pkl",
+      "SDF": "/medias/medical/data/Atlas_training/v1/sdf/IXI426-IOP-1011-Mask.nii.gz"
     },
     {
       "subject_id": "IXI118-Guys-0764",
       "scan_age": 25.93,
       "sex": "F",
-      "MRA": "/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI118-Guys-0764-MRA.nii.gz",
-      "T1": "/leonardo/home/userexternal/xzhang01/data/v1/data/T1/IXI118-Guys-0764-T1.nii.gz",
-      "Seg": "/leonardo/home/userexternal/xzhang01/data/v1/mask/fast/IXI118-Guys-0764-Mask.nii.gz",
-      "Graph": "/leonardo/home/userexternal/xzhang01/data/v1/graph/IXI118-Guys-0764-Graph.pkl",
-      "SDF": "/leonardo/home/userexternal/xzhang01/data/v1/sdf/IXI118-Guys-0764-Mask.nii.gz"
+      "MRA": "/medias/medical/data/Atlas_training/v1/data/MRA/IXI118-Guys-0764-MRA.nii.gz",
+      "T1": "/medias/medical/data/Atlas_training/v1/data/T1/IXI118-Guys-0764-T1.nii.gz",
+      "Seg": "/medias/medical/data/Atlas_training/v1/mask/fast/IXI118-Guys-0764-Mask.nii.gz",
+      "Graph": "/medias/medical/data/Atlas_training/v1/graph/IXI118-Guys-0764-Graph.pkl",
+      "SDF": "/medias/medical/data/Atlas_training/v1/sdf/IXI118-Guys-0764-Mask.nii.gz"
     }
   ],
   "training_subject_ids": [
@@ -616,9 +616,9 @@
     "IXI137-HH-1472"
   ],
   "train_validation_overlap": [],
-  "metadata": "/leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv",
-  "metadata_sha256": "71d6ab5b7253068fd819d6fe82f676bc7255f951a02003f116955f36babfbb44",
-  "split_yaml": "/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml",
+  "metadata": "/medias/medical/data/Atlas_training/v1/ixi_metadata_label_t1_fast_sdf.tsv",
+  "metadata_sha256": "b1f896eeccf1f9889da7b63ddd7bb6fd68f0712e4191cc7d878570f2e90134a5",
+  "split_yaml": "/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml",
   "split_sha256": "bc84b1dd6d608ad417816458e54f6aa600a1b801d44f976265a801fd6e8b7a9c",
   "split_key": "mra_atlas_synthseg_label_t1_fast.subject_ids.val",
   "selection_order": "YAML val list order",

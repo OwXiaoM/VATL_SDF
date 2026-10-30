@@ -1,7 +1,7 @@
 # Corrected SDF-only population split and individual validation
 
 The authoritative file is
-`/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml`,
+`/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml`,
 node `mra_atlas_synthseg_label_t1_fast.subject_ids`:
 **497 train / 55 val / 0 test**, with no overlap. The original YAML is unchanged.
 The 55 subjects are a validation cohort, not a separate final test cohort.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bounded numerical validation only, not production training.
 set -euo pipefail
-source /leonardo/home/userexternal/xzhang01/VATL_SDF/slurm/environment.sh
+source /users/zhangx/VATL_SDF/slurm/environment.sh
 ROOT=${1:?new validation output directory}
 python -m tests.smoke --real --device cuda --output "$ROOT/real_gpu" 2>&1 | tee "$ROOT/real_gpu.log"
 RUN_DIR=$(cat "$ROOT/real_gpu/run_directory.txt")

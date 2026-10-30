@@ -17,7 +17,7 @@ for folder,prefix in [('atlas_age20_M_spacing1_SMOKE_ONLY','atlas'),('subject_na
         assert images[0].shape==(240,240,120)
         np.testing.assert_allclose(images[0].affine,np.array([[1,0,0,-120],[0,1,0,-120],[0,0,1,-60],[0,0,0,1]]))
     else:
-        original=nib.load('/leonardo/home/userexternal/xzhang01/data/v1/data/MRA/IXI002-Guys-0828-MRA.nii.gz')
+        original=nib.load('/medias/medical/data/Atlas_training/v1/data/MRA/IXI002-Guys-0828-MRA.nii.gz')
         assert original.shape==images[0].shape
         np.testing.assert_allclose(original.affine,images[0].affine)
     result[folder]={'shape':images[0].shape,'affine':images[0].affine.tolist(),

@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-source /leonardo/home/userexternal/xzhang01/VATL_SDF/slurm/environment.sh
+source /users/zhangx/VATL_SDF/slurm/environment.sh
 ROOT=${1:?new validation output path}
 mkdir -p "$ROOT"
 python -m unittest -v tests.test_pipeline 2>&1 | tee "$ROOT/unit_tests.log"
