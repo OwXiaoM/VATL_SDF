@@ -703,6 +703,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46334 | Phase 2 pilot 00_sdf_baseline (100 subj, 40k steps) + diagnostics | 1 L40S | sdf_only/pilots/20261030_p2_00_sdf_baseline | 1.80 | COMPLETED 1 h 48 min, PILOT_OK |
 | 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | pending | |
 | 46343–46347 | Phase 2 pilots 01–05 | 1 L40S each, frozen e06b276 | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
