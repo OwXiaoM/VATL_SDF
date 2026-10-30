@@ -49,6 +49,31 @@ def validate(c):
             raise ValueError(f'Invalid training.{key}')
     if c['training']['atlas_every'] < 0 or c['optimizer']['scheduler_epochs'] <= 0:
         raise ValueError('Invalid atlas period or scheduler horizon')
+    validate_graph(c.get('graph', {}))
+
+
+GRAPH_POINT_TERMS = ('centerline_sdf', 'centerline_hinge', 'edge_hinge', 'radius')
+
+
+def validate_graph(g):
+    if not g:
+        return
+    if g['support_tolerance_mm'] < 0 or g['edge_step_mm'] <= 0 or not isinstance(g['support_strict'], bool):
+        raise ValueError('Invalid graph support settings')
+    for name in GRAPH_POINT_TERMS + ('eikonal',):
+        term = g[name]
+        if not isinstance(term['enabled'], bool) or not np.isfinite(term['weight']) or term['weight'] < 0:
+            raise ValueError(f'Invalid graph.{name}')
+        if name in GRAPH_POINT_TERMS and not 0 < term['points_fraction'] <= 1:
+            raise ValueError(f'graph.{name}.points_fraction must be in (0, 1]')
+    if g['eikonal']['band_mm'] <= 0 or g['radius']['min_radius_mm'] < 0:
+        raise ValueError('Invalid eikonal band or radius threshold')
+
+
+def graph_terms(config):
+    """Names of enabled graph point terms (each draws its own extra points per subject)."""
+    g = config.get('graph', {})
+    return [name for name in GRAPH_POINT_TERMS if g and g[name]['enabled']]
 
 
 def condition_vector(config, age, sex):

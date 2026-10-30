@@ -11,8 +11,10 @@ import pandas as pd
 import nibabel as nib
 import torch
 from torch.utils.data import Dataset
-from .config import condition_vector
-from .graph_coords import load_graph, normalize_world, voxel_to_world
+from scipy.ndimage import map_coordinates
+from .config import condition_vector, graph_terms
+from .graph_coords import (MaskDistance, load_graph, mask_support, normalize_world, supported_edges, voxel_to_world,
+                           world_to_voxel)
 from .splits import read_splits, ordered_rows
 
 REQUIRED_COLUMNS = ('subject_id', 'SDF', 'Graph', 'scan_age', 'sex')
@@ -92,13 +94,94 @@ def load_subject(row, config):
         raise ValueError('No image voxels inside the physical bounding box')
     graph = load_graph(row['Graph'])
     graph['coords'] = normalize_world(graph['pos'], affine, shape, config['data']['world_bbox_mm']).astype(np.float32)
+    if config.get('graph'):
+        graph.update(graph_support(sdf < 0, affine, graph, config['graph']))
     report = {'subject_id':str(row['subject_id']), 'shape':list(shape),
               'spacing_mm':nib.affines.voxel_sizes(affine).tolist(), 'header_units':unit,
               'sdf_range_mm':[float(sdf.min()),float(sdf.max())],
               'sdf_negative_voxels':int((sdf<0).sum()),'valid_voxels':int(valid.size),
               'graph_nodes':len(graph['pos']), 'graph_edges':len(graph['edges']),
               'graph_nodes_in_bbox':int((np.abs(graph['coords'])<=1).all(1).sum())}
+    if 'supported' in graph:
+        report.update(graph_nodes_supported=int(graph['supported'].sum()),
+                      graph_edges_supported=int(graph['edge_supported'].sum()))
     return {'sdf':sdf,'affine':affine,'valid':valid,'graph':graph,'report':report}
+
+
+def graph_support(mask, affine, graph, settings):
+    """Mask support of nodes/edges (graph_coords rule) and snapped node positions in world mm."""
+    distance = MaskDistance(mask, affine)
+    tolerance, strict = settings['support_tolerance_mm'], settings['support_strict']
+    supported, snapped, d = mask_support(mask, affine, graph['pos'], tolerance, strict, distance)
+    edges = graph['edges']
+    edge_supported = supported_edges(mask, affine, snapped, edges, supported, tolerance, strict,
+                                     settings['edge_step_mm'], distance) if len(edges) else np.zeros(0, bool)
+    return {'supported': supported, 'snapped': snapped, 'support_distance_mm': d, 'edge_supported': edge_supported}
+
+
+def sample_points_on_edges(positions, edges, count, rng):
+    """count points uniformly by length along the given edges (world mm)."""
+    a, b = positions[edges[:, 0]], positions[edges[:, 1]]
+    length = np.linalg.norm(b - a, axis=1) + 1e-6
+    chosen = rng.choice(len(edges), size=count, p=length / length.sum())
+    t = rng.random((count, 1))
+    return a[chosen] * (1 - t) + b[chosen] * t
+
+
+def reference_sdf_at(subject, world):
+    return map_coordinates(subject['sdf'], world_to_voxel(subject['affine'], world).T, order=1, mode='nearest')
+
+
+def hinge_ceiling_mm(reference_mm, epsilon_mm):
+    """Upper bound for SDF_pred: -epsilon where the reference is inside, the reference value where it is
+    outside (tolerated points up to 0.4 mm out), so a hinge never asks for SDF < 0 where the reference is > 0."""
+    return np.where(reference_mm > 0, reference_mm, -epsilon_mm)
+
+
+def sample_graph(subject, config, rng):
+    """Extra graph points per enabled term: {term}_coords (n,3), {term}_target_mm (n,1), {term}_weight (n,1).
+
+    centerline_sdf: along edges with both endpoints supported (original positions); target = reference SDF.
+    centerline_hinge: supported nodes, snapped; target = hinge ceiling.
+    edge_hinge: along mask-supported edges between snapped nodes; target = hinge ceiling.
+    radius: supported nodes with r >= min_radius_mm, snapped; target = -r.
+    Empty pools give zero-weight rows so batches keep a fixed shape.
+    """
+    g, settings = subject['graph'], config['graph']
+    out, report = {}, {}
+    for term in graph_terms(config):
+        count = int(round(settings[term]['points_fraction'] * config['sampling']['sdf']['points']))
+        world, target = None, None
+        if term == 'centerline_sdf':
+            edges = g['edges'][g['supported'][g['edges'][:, 0]] & g['supported'][g['edges'][:, 1]]] if len(g['edges']) else g['edges']
+            if len(edges):
+                world = sample_points_on_edges(g['pos'], edges, count, rng)
+                target = reference_sdf_at(subject, world)
+            pool = len(edges)
+        elif term in ('centerline_hinge', 'radius'):
+            keep = g['supported'] if term == 'centerline_hinge' else g['supported'] & (g['radius'] >= settings['radius']['min_radius_mm'])
+            nodes = np.flatnonzero(keep)
+            if len(nodes):
+                picked = rng.choice(nodes, size=count, replace=len(nodes) < count)
+                world = g['snapped'][picked]
+                target = (-g['radius'][picked] if term == 'radius' else
+                          hinge_ceiling_mm(reference_sdf_at(subject, world), settings[term]['epsilon_mm']))
+            pool = len(nodes)
+        else:
+            edges = g['edges'][g['edge_supported']] if len(g['edges']) else g['edges']
+            if len(edges):
+                world = sample_points_on_edges(g['snapped'], edges, count, rng)
+                target = hinge_ceiling_mm(reference_sdf_at(subject, world), settings[term]['epsilon_mm'])
+            pool = len(edges)
+        weight = np.ones((count, 1), np.float32)
+        if world is None:
+            world, target, weight = np.zeros((count, 3)), np.zeros(count), np.zeros((count, 1), np.float32)
+        out[f'{term}_coords'] = normalize_world(world, subject['affine'], subject['sdf'].shape,
+                                                config['data']['world_bbox_mm']).astype(np.float32)
+        out[f'{term}_target_mm'] = np.asarray(target, np.float32).reshape(-1, 1)
+        out[f'{term}_weight'] = weight
+        report[term] = {'pool': int(pool), 'count': count}
+    return out, report
 
 
 def sample_pools(pools, fractions, count, rng):
@@ -170,6 +253,9 @@ class SDFGraphDataset(Dataset):
         # Independent of worker scheduling/rank; fully reproducible at epoch boundaries.
         rng = np.random.default_rng(np.random.SeedSequence([self.config['seed'],self.epoch,index]))
         result = sample_sdf(subject,self.config,rng)
+        if graph_terms(self.config):
+            graph, report = sample_graph(subject,self.config,rng)
+            result.update(graph);result['sampling_report']['graph'] = report
         result['sampling_report'].update({'subject_index':int(index),'epoch':int(self.epoch)})
         result['condition'] = condition_vector(self.config,self.frame.iloc[index].scan_age,self.frame.iloc[index].sex)
         result['subject_index'] = int(index)
@@ -177,7 +263,8 @@ class SDFGraphDataset(Dataset):
 
 
 def collate_subjects(items):
-    result = {k:torch.from_numpy(np.stack([item[k] for item in items])) for k in ('sdf_coords','sdf_target_mm','condition')}
+    keys = [k for k in items[0] if k not in ('sampling_report','subject_index')]
+    result = {k:torch.from_numpy(np.stack([item[k] for item in items])) for k in keys}
     result['subject_index'] = torch.tensor([item['subject_index'] for item in items],dtype=torch.long)
     result['sampling_report'] = [item['sampling_report'] for item in items]
     return result

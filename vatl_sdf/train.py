@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import time
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -16,7 +17,8 @@ import yaml
 from .config import load_config
 from .dataset import SDFGraphDataset, collate_subjects
 from .model import SDFModel
-from .losses import sdf_losses
+from .losses import sdf_losses, add_graph_losses, eikonal_loss
+from .config import graph_terms
 from .inference import generate_atlas
 from .splits import check_resume_subjects
 
@@ -101,11 +103,17 @@ def train(config):
     position=checkpoint['position'] if checkpoint else {'epoch':0,'batch':0,'inner':0}
     step=checkpoint['step'] if checkpoint else 0
     limit=config['training']['max_steps']
+    stop=config['training']['stop_after_epoch']
+    if stop is not None and position['epoch']>stop:
+        if rank==0:print(f'Already past stop_after_epoch={stop}; no updates made',flush=True)
+        if world>1:dist.destroy_process_group()
+        return directory
     if limit is not None and step>=limit:
         if rank==0:print('Already at max_steps; no updates made',flush=True)
         if world>1:dist.destroy_process_group()
         return directory
-    if rank==0:print(f'Output: {directory}; subjects={len(data)}; world_size={world}; device={device}',flush=True)
+    terms=graph_terms(config);eikonal=bool(config.get('graph')) and config['graph']['eikonal']['enabled']
+    if rank==0:print(f'Output: {directory}; subjects={len(data)}; world_size={world}; device={device}; graph_terms={terms}; eikonal={eikonal}',flush=True)
     for epoch in range(position['epoch'],config['training']['epochs']):
         data.epoch=epoch
         generator=torch.Generator().manual_seed(config['seed']+epoch)
@@ -132,19 +140,38 @@ def train(config):
             perm=torch.randperm(len(coords),generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank)).to(device)
             arrays=(coords[perm],targets[perm],ids[perm],cond[perm])
             steps=math.ceil(len(coords)/config['training']['task_points_per_step'])
+            # Extra graph points per enabled term, shuffled independently and split over the same steps.
+            graph_arrays={}
+            for t,term in enumerate(terms):
+                gp=batch[f'{term}_coords'].shape[1]
+                gperm=torch.randperm(b*gp,generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank+(t+1)*7919)).to(device)
+                graph_arrays[term]=tuple(x.to(device)[gperm] for x in (batch[f'{term}_coords'].reshape(-1,3),batch[f'{term}_target_mm'].reshape(-1,1),
+                                         batch[f'{term}_weight'].reshape(-1,1),indices.repeat_interleave(gp),conditions.repeat_interleave(gp,dim=0)))
             for inner in range(steps):
                 if epoch==position['epoch'] and batch_index==position['batch'] and inner<position['inner']:continue
                 sc,st,si,sv=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
+                pieces={term:tuple(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in graph_arrays[term]) for term in terms}
+                if eikonal:sc=sc.detach().requires_grad_(True)
                 optimizer.zero_grad(set_to_none=True)
-                output,moe=network(sc,si,sv)
-                parts=sdf_losses(output,st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
+                all_coords=torch.cat([sc]+[pieces[t][0] for t in terms]);all_ids=torch.cat([si]+[pieces[t][3] for t in terms])
+                all_cond=torch.cat([sv]+[pieces[t][4] for t in terms])
+                output,moe=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None)
+                outputs=output.split([len(sc)]+[len(pieces[t][0]) for t in terms])
+                parts=sdf_losses(outputs[0],st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
+                if terms:parts=add_graph_losses(parts,[(o,pieces[t][1],pieces[t][2]) for o,t in zip(outputs[1:],terms)],terms,config)
+                if eikonal:
+                    band=st.abs().reshape(-1)<=config['graph']['eikonal']['band_mm']
+                    eik=eikonal_loss(outputs[0],sc,model.half_bbox,config['sdf']['truncation_mm'],band)
+                    parts['eikonal_raw']=eik;parts['eikonal_weighted']=config['graph']['eikonal']['weight']*eik
+                    parts['total']=parts['total']+parts['eikonal_weighted']
                 if not torch.isfinite(parts['total']):raise FloatingPointError('Nonfinite loss')
                 parts['total'].backward();optimizer.step();step+=1
                 values=torch.stack([v.detach() for v in parts.values()])
                 if world>1:dist.all_reduce(values);values/=world
                 if rank==0:
-                    report={'epoch':epoch,'batch':batch_index,'inner':inner,'step':step,
-                        'sdf_points_per_rank':len(sc),**dict(zip(parts,values.cpu().tolist()))}
+                    report={'epoch':epoch,'batch':batch_index,'inner':inner,'step':step,'time':time.time(),
+                        'sdf_points_per_rank':len(sc),**{f'{t}_points_per_rank':len(pieces[t][0]) for t in terms},
+                        **dict(zip(parts,values.cpu().tolist()))}
                     with (Path(directory)/'losses.jsonl').open('a') as stream:stream.write(json.dumps(report)+'\n')
                     if step%10==0 or step==1:print(json.dumps(report),flush=True)
                 if limit is not None and step>=limit:

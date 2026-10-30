@@ -51,6 +51,39 @@ loss:
   moe_weight: 0.01
   tf_weight: 0.0
   sdf_metric: l1
+graph:
+  # Graph terms apply only where the reference mask supports them (Phase 0a decision):
+  # a node is supported within support_tolerance_mm of the voxelized mask (half a 0.8 mm
+  # graph voxel); supported nodes outside the mask are snapped to their nearest mask voxel
+  # centre for hinge targets. support_strict: true = nearest-voxel rule, no snapping.
+  support_tolerance_mm: 0.4
+  support_strict: false
+  edge_step_mm: 0.4 # spacing of the samples used to accept/reject an edge
+  # Each enabled point term draws points_fraction * sampling.sdf.points EXTRA points per
+  # subject per epoch, so combining terms adds compute and never dilutes another term.
+  centerline_sdf: # default centreline term: reference SDF at points along graph edges
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+  centerline_hinge: # max(0, SDF_pred - ceiling) at supported (snapped) nodes
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+    epsilon_mm: 0.0
+  edge_hinge: # same hinge along mask-supported edges; never connects separate graph pieces
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+    epsilon_mm: 0.0
+  radius: # optional: |SDF_pred + r| at supported nodes with r >= min_radius_mm (never floor nodes)
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+    min_radius_mm: 0.9
+  eikonal: # optional: (|grad SDF|_mm - 1)^2 on SDF samples with |reference| <= band_mm
+    enabled: false
+    weight: 0.1
+    band_mm: 2.0
 optimizer:
   lr_model: 0.0001
   lr_latent: 0.0005

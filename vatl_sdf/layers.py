@@ -60,6 +60,7 @@ class MoESineLayer(nn.Module):
             ]
         )
         self.latest_loss = 0.0
+        self.balance_count = None  # if set, balance only over the first balance_count rows
 
     def forward(self, input_tuple):
         """
@@ -72,10 +73,11 @@ class MoESineLayer(nn.Module):
         weights, indices = torch.topk(gate_logits, self.k, dim=-1)
         weights = F.softmax(weights, dim=-1)
 
-        soft_gates = F.softmax(gate_logits, dim=-1)
+        n = x.shape[0] if self.balance_count is None else self.balance_count
+        soft_gates = F.softmax(gate_logits[:n], dim=-1)
         importance = soft_gates.sum(0)
         # Penalize unequal expert importance with a differentiable balancing term.
-        target = x.shape[0] / self.num_experts
+        target = n / self.num_experts
         loss = torch.sum((importance - target) ** 2) / (target**2)
         self.latest_loss = loss
 

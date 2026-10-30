@@ -1,17 +1,17 @@
-"""Phase 0 diagnostics: individual fitting (Case 1) versus atlas construction (Case 2).
+"""Fitting diagnostics (Phase 0c, Phase 2 screening): individual fits vs atlas construction.
 
 Read-only on the checkpoint. For fixed training subjects spanning age and sex:
-- native-grid reconstruction vs reference SDF (zero-level Dice, volume, 6/26 components);
-- the same on a 2x supersampled native grid (reference SDF trilinearly interpolated),
+- native-grid reconstruction vs reference SDF: zero-level Dice, band MAE, volume, and
+  connectivity RELATIVE TO THE SUBJECT'S REFERENCE MASK (26-connectivity);
+- optionally the same on a supersampled native grid (reference SDF trilinearly interpolated),
   to separate voxel undersampling from missing geometry;
-- centerline recall: fraction of graph skeleton nodes with predicted SDF < 0, by radius,
-  which is grid-free. The reference SDF is evaluated at the same nodes.
-Atlas (mean-latent) exports at 1 mm and 0.5 mm with component statistics.
+- grid-free centreline check: at mask-supported graph nodes (0.4 mm tolerance, snapped,
+  vatl_sdf.graph_coords), fraction with predicted SDF < 0, by radius, next to the reference.
+Mean-latent atlas exports with component statistics.
 Training subjects measure fitting, not generalisation.
 """
 import argparse
 import json
-import pickle
 from pathlib import Path
 
 import nibabel as nib
@@ -23,12 +23,13 @@ from scipy.ndimage import map_coordinates
 
 from vatl_sdf import CHANNELS
 from vatl_sdf.config import condition_vector
+from vatl_sdf.evaluate import reference_relative_connectivity
+from vatl_sdf.graph_coords import load_graph, mask_support, normalize_world, world_to_voxel
 from vatl_sdf.inference import generate_atlas, predict_field
 from vatl_sdf.model import SDFModel
 
-GRAPH_DIR = Path('/medias/medical/data/Atlas_training/v1/graph')
-SDF_DIR = Path('/medias/medical/data/Atlas_training/v1/sdf')
-RADIUS_BINS = [(0, 0.9), (0.9, 1.5), (1.5, 2.0), (2.0, np.inf)]
+RADIUS_BINS = [('floor', 0, 0.801), ('0.80-0.90', 0.801, 0.9), ('0.90-1.20', 0.9, 1.2), ('1.20-1.60', 1.2, 1.6),
+               ('>=1.60', 1.6, np.inf)]
 FULL = np.ones((3, 3, 3), bool)
 
 
@@ -69,52 +70,52 @@ def subject_grid(affine, shape, factor):
 
 
 def normalized(world, affine, shape, config):
-    center = nib.affines.apply_affine(affine, np.asarray(shape) / 2.)
-    return ((world - center) / (np.asarray(config['data']['world_bbox_mm']) / 2.)).astype(np.float32)
+    return normalize_world(world, affine, shape, config['data']['world_bbox_mm']).astype(np.float32)
 
 
-def evaluate_subject(model, config, index, row, out, save):
+def evaluate_subject(model, config, index, row, out, factors, save):
     tau = config['sdf']['truncation_mm']
-    image = nib.load(SDF_DIR / f'{row.subject_id}-Mask.nii.gz')
+    image = nib.load(row.SDF)
     reference = image.get_fdata(dtype=np.float32)
     condition = condition_vector(config, row.scan_age, row.sex)
     result = {'subject_id': row.subject_id, 'scan_age': float(row.scan_age), 'sex': row.sex}
-    for factor in (1, 2):
+    for factor in factors:
         vox, world, shape, affine = subject_grid(image.affine, image.shape, factor)
         coords = normalized(world, image.affine, image.shape, config)
+        valid = (np.abs(coords) <= 1).all(1).reshape(shape)
         pred = predict_field(model, coords, condition, config, subject_index=index)
         pred = pred[:, CHANNELS['vessel_sdf_normalized']].reshape(shape) * tau
         ref = reference if factor == 1 else map_coordinates(reference, vox.T, order=1, mode='nearest').reshape(shape)
-        p, r = pred < 0, ref < 0
-        band = np.abs(ref) <= tau
+        p, r = (pred < 0) & valid, (ref < 0) & valid
+        band = (np.abs(ref) <= tau) & valid
         result[f'grid_x{factor}'] = {
-            'zero_level_dice': dice(p, r), 'sign_agreement': float((p == r).mean()),
+            'zero_level_dice': dice(p, r), 'sign_agreement': float((p == r)[valid].mean()),
             'band_mae_mm': float(np.abs(pred[band] - ref[band]).mean()),
             'volume_ratio_pred_over_ref': float(p.sum() / max(r.sum(), 1)),
+            'connectivity': reference_relative_connectivity(p, r),
             'pred': component_stats(p), 'ref': component_stats(r)}
         if save and factor == 1:
             directory = out / 'subjects' / row.subject_id
             directory.mkdir(parents=True, exist_ok=True)
             nib.save(nib.Nifti1Image(pred.astype(np.float32), affine), directory / 'Subject_VesselSDF.nii.gz')
             nib.save(nib.Nifti1Image(p.astype(np.uint8), affine), directory / 'Subject_VesselMask.nii.gz')
-    graph = pickle.load(open(GRAPH_DIR / f'{row.subject_id}-Graph.pkl', 'rb'))['graph']
-    pos = np.array([d['pos'] for _, d in graph.nodes(data=True)])
-    radius = np.array([d['radius'] for _, d in graph.nodes(data=True)])
-    pred_nodes = predict_field(model, normalized(pos, image.affine, image.shape, config), condition, config,
+    graph = load_graph(row.Graph)
+    mask = reference < 0
+    supported, snapped, _ = mask_support(mask, image.affine, graph['pos'])
+    radius = graph['radius']
+    pred_nodes = predict_field(model, normalized(snapped, image.affine, image.shape, config), condition, config,
                                subject_index=index)[:, CHANNELS['vessel_sdf_normalized']] * tau
-    ref_nodes = map_coordinates(reference, (np.linalg.inv(image.affine) @ np.c_[pos, np.ones(len(pos))].T)[:3],
-                                order=1, mode='nearest')
-    recall = {}
-    for lo, hi in RADIUS_BINS:
-        keep = (radius >= lo) & (radius < hi)
-        recall[f'r_{lo}_{hi}'] = {'nodes': int(keep.sum()),
-                                  'pred_inside': float((pred_nodes[keep] < 0).mean()) if keep.any() else None,
-                                  'ref_inside': float((ref_nodes[keep] < 0).mean()) if keep.any() else None,
-                                  'pred_median_sdf': float(np.median(pred_nodes[keep])) if keep.any() else None}
-    # Nodes inside the reference but outside the prediction: centreline breaks attributable to fitting.
-    both = ref_nodes < 0
-    recall['pred_inside_given_ref_inside'] = float((pred_nodes[both] < 0).mean())
-    result['centerline'] = recall
+    ref_nodes = map_coordinates(reference, world_to_voxel(image.affine, snapped).T, order=1, mode='nearest')
+    centreline = {'nodes': len(radius), 'supported': int(supported.sum())}
+    for label, lo, hi in RADIUS_BINS:
+        keep = supported & (radius > lo) & (radius <= hi)
+        centreline[label] = {'nodes': int(keep.sum()),
+                             'pred_inside': float((pred_nodes[keep] < 0).mean()) if keep.any() else None,
+                             'ref_inside': float((ref_nodes[keep] < 0).mean()) if keep.any() else None,
+                             'pred_median_sdf_mm': float(np.median(pred_nodes[keep])) if keep.any() else None}
+    inside_ref = supported & (ref_nodes < 0)
+    centreline['pred_inside_given_ref_inside'] = float((pred_nodes[inside_ref] < 0).mean())
+    result['centerline'] = centreline
     return result
 
 
@@ -124,7 +125,9 @@ def main():
     p.add_argument('--output', required=True)
     p.add_argument('--subjects', nargs='*')
     p.add_argument('--device', default='cuda')
-    p.add_argument('--skip-atlas', action='store_true')
+    p.add_argument('--factors', nargs='+', type=int, default=[1, 2])
+    p.add_argument('--atlas-spacings', nargs='*', type=float, default=[1.0, 0.5])
+    p.add_argument('--chunk-size', type=int, default=200000)
     a = p.parse_args()
     out = Path(a.output)
     if out.exists() and any(out.iterdir()):
@@ -132,25 +135,26 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     checkpoint = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
     config, frame = checkpoint['config'], pd.DataFrame(checkpoint['metadata'])
+    config['atlas']['chunk_size'] = a.chunk_size
     model = SDFModel(config, len(frame)).to(a.device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
     subjects = a.subjects or select_subjects(frame)
     results = {'checkpoint': str(Path(a.checkpoint).resolve()), 'step': checkpoint.get('step'),
+               'epoch': checkpoint.get('position', {}).get('epoch'),
                'note': 'training subjects: fitting quality, not held-out generalisation', 'subjects': []}
     for subject in subjects:
         index = int(frame.index[frame.subject_id == subject][0])
-        results['subjects'].append(evaluate_subject(model, config, index, frame.iloc[index], out, save=True))
-        print(json.dumps(results['subjects'][-1]['grid_x1']['pred']), flush=True)
+        results['subjects'].append(evaluate_subject(model, config, index, frame.iloc[index], out, a.factors, save=True))
+        print(json.dumps({'subject': subject, **results['subjects'][-1]['grid_x1']['connectivity']}), flush=True)
         (out / 'diagnostics.json').write_text(json.dumps(results, indent=1))
-    if not a.skip_atlas:
-        results['atlas'] = {}
-        for spacing in (1.0, 0.5):
-            config['atlas']['spacing_mm'] = [spacing] * 3
-            directory = generate_atlas(model, frame, config, out / f'atlas_{spacing:g}mm')
-            mask = nib.load(directory / 'VesselMask_atlas.nii.gz').get_fdata() > 0
-            results['atlas'][f'{spacing:g}mm'] = component_stats(mask)
-            (out / 'diagnostics.json').write_text(json.dumps(results, indent=1))
+    results['atlas'] = {}
+    for spacing in a.atlas_spacings:
+        config['atlas']['spacing_mm'] = [spacing] * 3
+        directory = generate_atlas(model, frame, config, out / f'atlas_{spacing:g}mm')
+        mask = nib.load(directory / 'VesselMask_atlas.nii.gz').get_fdata() > 0
+        results['atlas'][f'{spacing:g}mm'] = component_stats(mask)
+        (out / 'diagnostics.json').write_text(json.dumps(results, indent=1))
 
 
 if __name__ == '__main__':

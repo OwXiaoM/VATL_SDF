@@ -45,7 +45,8 @@ class SDFModel(nn.Module):
         nn.init.uniform_(self.sdf_head.weight,-bound,bound)
         nn.init.zeros_(self.sdf_head.bias)
 
-    def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True):
+    def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True, balance_count=None):
+        """balance_count: MoE balancing uses only the first balance_count points (SDF samples)."""
         if coords.ndim!=2 or coords.shape[1]!=3 or conditions.shape!=(len(coords),2):
             raise ValueError('Expected Nx3 coordinates and Nx2 age/sex conditions')
         if subject_indices.shape!=(len(coords),):
@@ -67,6 +68,9 @@ class SDFModel(nn.Module):
                 values = F.grid_sample(grids[j:j+1],grid,align_corners=True,padding_mode='border').reshape(grids.shape[1],-1).T
                 mod = mod.index_copy(0,selected,values)
         features = torch.cat([mod,conditions],dim=-1)
+        for layer in self.backbone:
+            if isinstance(layer,MoESineLayer):
+                layer.balance_count = balance_count
         hidden,_ = self.backbone((coords,features))
         shared = torch.cat([hidden,features],dim=-1)
         # SDF deliberately stays linear, signed, and unbounded. Output shape (N, 1).

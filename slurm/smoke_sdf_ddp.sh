@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:l40s:4
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=192G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
 #SBATCH --time=03:00:00
 # Phase 1 acceptance: multi-GPU DDP (GPU count from the allocation), full-size model, 8 subjects; 200 steps with periodic
 # checkpoints/atlases, exact resume to 300 steps, atlas + native subject export + evaluation.
@@ -14,7 +14,7 @@ OUT=${1:?new output directory}
 CONFIG=${2:-configs/sdf/00_sdf_baseline.yaml}
 shift 2 || shift $#
 source /users/zhangx/VATL_SDF/slurm/environment.sh
-export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
+export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4
 mkdir -p "$OUT"
 NPROC=${SLURM_GPUS_ON_NODE:-4}
 echo "git $(git rev-parse --short HEAD); config $CONFIG; extra: $*"
