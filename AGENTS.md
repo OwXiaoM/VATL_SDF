@@ -21,8 +21,12 @@ run, with unchanged SDF-only training hyperparameters. No jobs were submitted.
 Consolidated plan (SDF + graph only, no MRA intensity; Phases 0–5); see the
 last section of `CONTEXT.md` for phase status, Slurm budget rules and the job
 table. Report and wait for confirmation after each phase. Graph/mask coordinate
-convention lives in `mra_sdf_only/graph_coords.py` (verified Phase 0a); vessel =
-label 1 of the multi-label segmentation file; graph radius is already mm.
+convention lives in `vatl_sdf/graph_coords.py` (verified Phase 0a; package renamed from
+`mra_sdf_only`, legacy code at tag `pre-sdf-only-refactor`); vessel = label 1 of the
+multi-label segmentation file; graph radius is already mm. New outputs go to
+`/medias/medical/caravel/zhangx/training_outputs/sdf_only`; the user authorized running
+these experiments without per-job approval (2026-10-30). Queued jobs use frozen worktrees
+(`VATL_CODE_DIR`); commands in `configs/sdf/README.md`.
 
 ## Working conventions
 
