@@ -1,0 +1,23 @@
+# All settings fixed before observing test results. Paths may be overridden by CLI.
+checkpoint: null # REQUIRED: explicitly supply a new 497-subject checkpoint with --checkpoint
+metadata: /leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv
+split_yaml: /leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml
+split_key: mra_atlas_synthseg_label_t1_fast.subject_ids.val
+seed: 20261030
+block_size_voxels: 8
+adaptation_folds: 5
+adaptation_fold: 0
+evaluation_guard_voxels: 1
+num_observations: 100000
+steps: 500
+batch_size: 4096
+chunk_size: 10000
+lr_latent: 0.0005
+lr_rigid: 0.0001
+latent_prior_weight: 0.0001
+rigid_prior_weight: 0.0001
+max_rotation_radians: 0.35
+max_translation_mm: 10.0
+metric_truncation_mm: 5.0
+surface_tolerance_mm: 1.0
+optimize_rigid: true

@@ -1,13 +1,18 @@
-# Remove only MRA intensity supervision; retain SDF and MoE weights.
-# All other settings match 00_baseline.yaml. Train from scratch.
+# Corrected SDF-only baseline: authoritative 497/55 split, fresh population fit.
+# Architecture, losses, optimizer, sampling and schedule match the original 02 run.
 seed: 42
 device: cuda
 output_root: /leonardo_scratch/large/userexternal/xzhang01/Cinema_output/mra_sdf_only
-run_name: ablation_02_sdf_only
+run_name: sdf_only_split_corrected
 resume: null
+require_fresh_start: true
 data:
   tsv: /leonardo/home/userexternal/xzhang01/data/v1/ixi_metadata_label_t1_fast_sdf.tsv
-  subject_ids: null # optional YAML list of IDs; otherwise all valid metadata rows
+  subject_ids: /leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml
+  split_key: mra_atlas_synthseg_label_t1_fast.subject_ids
+  split: train
+  expected_split_counts: {train: 497, val: 55, test: 0}
+  require_complete_split: true
   max_subjects: null
   world_bbox_mm: [240, 240, 120]
   age_range: [19, 87]

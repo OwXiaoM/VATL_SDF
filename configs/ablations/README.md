@@ -1,5 +1,12 @@
 # Controlled vessel ablations
 
+Historical experiment suite. The live `02_sdf_only.yaml` now corrects splitting
+to 497 train / 55 validation and requires a fresh start; it no longer belongs
+to the original matched 552-subject suite. Other historical configs are not
+updated for further use. **02_sdf_only is now the baseline** for future
+experiments; do not continue intensity-supervision ablations. Individual testing
+is documented in [`../evaluation/README.md`](../evaluation/README.md).
+
 These six full configs use the original baseline settings, with a common stop
 after epoch index 199 (200 epochs). The cosine scheduler retains its original
 1,000-epoch horizon. Each variant changes one factor from `00_baseline`.

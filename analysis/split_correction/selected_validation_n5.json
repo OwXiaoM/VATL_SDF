@@ -1,0 +1,12 @@
+{
+  "subject_ids": [
+    "IXI403-Guys-0965",
+    "IXI037-Guys-0704",
+    "IXI050-Guys-0711",
+    "IXI426-IOP-1011",
+    "IXI118-Guys-0764"
+  ],
+  "selection_order": "YAML val list order",
+  "split_sha256": "bc84b1dd6d608ad417816458e54f6aa600a1b801d44f976265a801fd6e8b7a9c",
+  "status": "selection_only_no_inference"
+}

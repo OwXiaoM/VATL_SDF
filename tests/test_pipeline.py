@@ -32,6 +32,11 @@ def tiny_config(directory):
         rows.append({'subject_id':f's{i}','scan_age':20+i,'sex':'M' if i==0 else 'F',
                      'MRA':str(Path(directory)/f'MRA{i}.nii.gz'),'SDF':str(Path(directory)/f'SDF{i}.nii.gz')})
     pd.DataFrame(rows).to_csv(c['data']['tsv'],sep='\t',index=False)
+    import yaml
+    split_path=Path(directory)/'splits.yaml'
+    split_path.write_text(yaml.safe_dump({'train':['s0','s1'],'val':[],'test':[]}))
+    c['data'].update(subject_ids=str(split_path),split_key=None,split='train',
+                     expected_split_counts={'train':2,'val':0,'test':0})
     return c
 
 

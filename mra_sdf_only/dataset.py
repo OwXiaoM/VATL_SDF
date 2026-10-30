@@ -7,6 +7,7 @@ import nibabel as nib
 import torch
 from torch.utils.data import Dataset
 from .config import condition_vector
+from .splits import read_splits, ordered_rows
 
 REQUIRED_COLUMNS = ('subject_id', 'MRA', 'SDF', 'scan_age', 'sex')
 
@@ -20,19 +21,23 @@ def read_metadata(config):
     if frame.isna().any().any() or frame['subject_id'].duplicated().any():
         raise ValueError('Metadata contains missing values or duplicate subject IDs')
     frame['scan_age'] = pd.to_numeric(frame['scan_age'], errors='raise')
-    lo, hi = config['data']['age_range']
-    frame = frame[frame['scan_age'].between(lo,hi)].reset_index(drop=True)
-    ids = config['data']['subject_ids']
-    if ids:
-        import yaml
-        allowed = yaml.safe_load(Path(ids).read_text())
-        if not isinstance(allowed, list):
-            raise ValueError('subject_ids must be a YAML list')
-        frame = frame[frame['subject_id'].isin(allowed)].reset_index(drop=True)
-    if config['data']['max_subjects']:
-        frame = frame.head(int(config['data']['max_subjects']))
+    data = config['data']
+    if data.get('split') != 'train':
+        raise ValueError('Population data loader requires data.split=train explicitly')
+    splits = read_splits(data.get('subject_ids'), data.get('split_key'), data.get('expected_split_counts'))
+    declared = set().union(*(set(ids) for ids in splits.values()))
+    if data.get('require_complete_split', True) and declared != set(frame.subject_id):
+        raise ValueError('Split union must match metadata IDs exactly; unassigned or missing subjects')
+    frame = ordered_rows(frame, splits['train'])
+    lo, hi = data['age_range']
+    if not frame['scan_age'].between(lo, hi).all():
+        raise ValueError('Declared training subject age outside configured range; refusing silent filtering')
+    if data.get('max_subjects'):
+        if config['training'].get('max_steps') is None:
+            raise ValueError('max_subjects is allowed only for explicit max_steps smoke checks')
+        frame = frame.head(int(data['max_subjects']))
     if frame.empty:
-        raise ValueError('No training subjects remain')
+        raise ValueError('No declared training subjects remain')
     parent = Path(config['data']['tsv']).resolve().parent
     for key in ('MRA','SDF'):
         frame[key] = frame[key].map(lambda path: str((parent / path).resolve()))
@@ -167,7 +172,10 @@ def sample_tasks(pair, config, rng):
 class MRASDFDataset(Dataset):
     def __init__(self, config, frame=None):
         self.config = config
-        self.frame = read_metadata(config) if frame is None else frame.reset_index(drop=True).copy()
+        declared = read_metadata(config)
+        if frame is not None and (frame.subject_id.duplicated().any() or not set(frame.subject_id).issubset(set(declared.subject_id))):
+            raise ValueError('Explicit dataset frame contains subjects outside the declared population train split')
+        self.frame = declared if frame is None else frame.reset_index(drop=True).copy()
         self.epoch = 0
         self.cache = OrderedDict()
 

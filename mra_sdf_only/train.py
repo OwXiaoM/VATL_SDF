@@ -18,6 +18,7 @@ from .dataset import MRASDFDataset, collate_subjects
 from .model import MRASDFModel
 from .losses import task_losses, gradient_diagnostics
 from .inference import generate_atlas
+from .splits import check_resume_subjects
 
 
 def setup(config):
@@ -59,12 +60,15 @@ def save_checkpoint(directory, model, optimizer, scheduler, config, frame, posit
 
 
 def train(config):
+    if config.get('require_fresh_start') and config.get('resume'):
+        raise ValueError('Corrected baseline requires a fresh start; no checkpoint initialization/resume allowed')
     rank,world,device=setup(config)
     if world>1 and config['training']['gradient_diagnostics_every']:
         raise ValueError('Optional per-task autograd diagnostics are single-device only; keep disabled for DDP')
     checkpoint=torch.load(config['resume'],map_location='cpu',weights_only=False) if config['resume'] else None
     data=MRASDFDataset(config);frame=data.frame
     if checkpoint:
+        check_resume_subjects(checkpoint, frame)
         if checkpoint['world_size']!=world:raise ValueError('Exact resume requires the same world size')
         for section in ('data','sampling','model','loss','optimizer','sdf','seed'):
             if checkpoint['config'][section]!=config[section]:raise ValueError(f'Resume config changed immutable section {section}')

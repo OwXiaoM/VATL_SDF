@@ -1,0 +1,53 @@
+test_actual_497_55_membership_and_yaml_order (tests.test_splits.SplitTests.test_actual_497_55_membership_and_yaml_order) ... ok
+test_fresh_start_blocks_resume_before_loading_weights (tests.test_splits.SplitTests.test_fresh_start_blocks_resume_before_loading_weights) ... ok
+test_null_and_wrong_training_split_rejected (tests.test_splits.SplitTests.test_null_and_wrong_training_split_rejected) ... ok
+test_only_split_and_run_identity_changed_from_original_sdf_only (tests.test_splits.SplitTests.test_only_split_and_run_identity_changed_from_original_sdf_only) ... ok
+test_overlap_duplicate_wrong_count_and_missing_ids_rejected (tests.test_splits.SplitTests.test_overlap_duplicate_wrong_count_and_missing_ids_rejected) ... ok
+test_cohort_prefix_contamination_and_missing_split (tests.test_individual.IndividualTests.test_cohort_prefix_contamination_and_missing_split) ... ok
+test_end_to_end_three_five_same_prefix (tests.test_individual.IndividualTests.test_end_to_end_three_five_same_prefix) ... Subject: test4
+zero_shot_atlas held-out Dice: 1.0
+/leonardo/prod/opt/libraries/cineca-ai/4.3.0/none/cineca-ai-env/lib/python3.11/site-packages/transformers/utils/generic.py:462: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  _torch_pytree._register_pytree_node(
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test1
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test5
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test2
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test3
+zero_shot_atlas held-out Dice: 0.0
+test_time_sdf_fit held-out Dice: 0.0
+Subject: test4
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test1
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+Subject: test5
+zero_shot_atlas held-out Dice: 1.0
+test_time_sdf_fit held-out Dice: 1.0
+ok
+test_metrics_empty_cases_adjacency_surfaces_and_physical_distance (tests.test_individual.IndividualTests.test_metrics_empty_cases_adjacency_surfaces_and_physical_distance) ... ok
+test_native_coordinates_partition_and_external_rigid (tests.test_individual.IndividualTests.test_native_coordinates_partition_and_external_rigid) ... ok
+test_only_external_parameters_change (tests.test_individual.IndividualTests.test_only_external_parameters_change) ... ok
+test_partial_fov_native_exports (tests.test_individual.IndividualTests.test_partial_fov_native_exports) ... ok
+test_atlas_and_average_levelset_export (tests.test_pipeline.PipelineTests.test_atlas_and_average_levelset_export) ... ok
+test_evaluation (tests.test_pipeline.PipelineTests.test_evaluation) ... ok
+test_grid_and_physical_rigid (tests.test_pipeline.PipelineTests.test_grid_and_physical_rigid) ... ok
+test_independent_samples (tests.test_pipeline.PipelineTests.test_independent_samples) ... ok
+test_intensity_normalization_without_anatomical_fields (tests.test_pipeline.PipelineTests.test_intensity_normalization_without_anatomical_fields) ... ok
+test_minimal_metadata_and_affine_validation (tests.test_pipeline.PipelineTests.test_minimal_metadata_and_affine_validation) ... ok
+test_numeric_optimization_and_inference (tests.test_pipeline.PipelineTests.test_numeric_optimization_and_inference) ... ok
+test_offline_vessel_distance_construction (tests.test_pipeline.PipelineTests.test_offline_vessel_distance_construction) ... ok
+test_sdf_only_has_no_intensity_supervision (tests.test_pipeline.PipelineTests.test_sdf_only_has_no_intensity_supervision) ... ok
+test_sdf_sign_units_and_output_mapping (tests.test_pipeline.PipelineTests.test_sdf_sign_units_and_output_mapping) ... ok
+test_two_heads_and_loss_routing (tests.test_pipeline.PipelineTests.test_two_heads_and_loss_routing) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 9.141s
+
+OK

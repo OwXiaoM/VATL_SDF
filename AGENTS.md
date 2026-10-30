@@ -6,10 +6,15 @@ Read `configs/ablations/README.md` for exact experiment commands and caveats.
 
 ## Current objective
 
-Investigate fragile/thin/disconnected vessel masks despite smooth MRA atlases.
-The user requested controlled experiments they can train one by one, including
-SDF-only supervision without MRA intensity supervision. Those configs and scripts
-have been implemented and locally checked; full ablation jobs were not submitted.
+Use **02_sdf_only** as the baseline for all subsequent experiments. Do not
+investigate intensity supervision or compare intensity-related ablations.
+Corrected splitting is implemented: train only the 497 IDs from
+`/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml`,
+then evaluate the first 3/5 of its 55 validation IDs in YAML order. The original
+split file is unchanged. Existing 552-subject checkpoints are contaminated for
+this validation cohort and must never initialize the corrected run. See
+`configs/evaluation/README.md`; use `slurm/train_sdf_only_split.sh` for a fresh
+run, with unchanged SDF-only training hyperparameters. No jobs were submitted.
 
 ## Working conventions
 
@@ -30,4 +35,4 @@ have been implemented and locally checked; full ablation jobs were not submitted
 Repository: `/leonardo/home/userexternal/xzhang01/VATL_SDF`.
 Use `source slurm/environment.sh` for Python and required HPC modules. Activating
 the virtualenv alone did not provide a complete runtime in this session.
-This directory did not contain a Git repository when checked.
+A local Git repository was initialized on 2026-10-30; GitHub upload used the connected app. Local SSH authentication was unavailable.

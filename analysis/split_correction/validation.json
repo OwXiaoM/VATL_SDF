@@ -1,0 +1,47 @@
+{
+  "training_subjects": 497,
+  "validation_subjects": 55,
+  "overlap": 0,
+  "validation_first_three": [
+    "IXI403-Guys-0965",
+    "IXI037-Guys-0704",
+    "IXI050-Guys-0711"
+  ],
+  "validation_first_five": [
+    "IXI403-Guys-0965",
+    "IXI037-Guys-0704",
+    "IXI050-Guys-0711",
+    "IXI426-IOP-1011",
+    "IXI118-Guys-0764"
+  ],
+  "order": "authoritative YAML list order",
+  "split_yaml": "/leonardo/home/userexternal/xzhang01/data/v1/subject_ids_label_t1_fast.yaml",
+  "split_sha256": "bc84b1dd6d608ad417816458e54f6aa600a1b801d44f976265a801fd6e8b7a9c",
+  "tests_passed": 22,
+  "shell_syntax_checks": "passed",
+  "unchanged_training_sections": [
+    "model",
+    "loss",
+    "sampling",
+    "sdf",
+    "optimizer",
+    "training",
+    "atlas",
+    "seed",
+    "device",
+    "output_root"
+  ],
+  "fresh_start": true,
+  "resume": null,
+  "mra_weight": 0.0,
+  "old_checkpoint_sha256_unchanged": "6f7c52af548780a9f5e83abc9be35a17fb62e44e1800be22ef8d3ecf02b16dde",
+  "new_training_or_evaluation_jobs_submitted": false,
+  "corrected_checkpoint_available": false,
+  "source_sha256": {
+    "mra_sdf_only/splits.py": "feb25df385a6e7f873a69c00151e5aa3b4f5cbc5d672df4bb997c4b67df886cb",
+    "mra_sdf_only/dataset.py": "70540f27a1ffdc47be29183ad74fd24ebdc34c46e4181cb1ffae78c1b6213ca6",
+    "mra_sdf_only/train.py": "5fbd7605683f8261d22c5a5b98aec6076d5dd77b89727fa0be70b787fccdfc0d",
+    "mra_sdf_only/test_individual.py": "b829cd1551ec3f6075e6380a0003a8eef746b17a5fd72c6e0ce651f6d89dd9c7",
+    "configs/ablations/02_sdf_only.yaml": "47b6d45a7b1d4370d6f3c257d10c3566a3e2204f1591856318c9ccab3ea3a981"
+  }
+}
