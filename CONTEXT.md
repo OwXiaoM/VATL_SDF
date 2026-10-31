@@ -718,6 +718,10 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46701 | continuation of 46700 | 3 L40S, frozen e7fe991 | same | pending | |
 | 46636 | FULL 01b_centerline_sdf_pointweight, 497 subj, 200 epochs (part 1; afterany:46342) | 3 L40S, 24 h, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
+| 46799 | Alignment Step 0 (CPU) | dev, 16 CPU, frozen ce77ff2 | sdf_only/analysis/20261031_alignment_step0 | 0 | COMPLETED 1.5 min |
+| 46800 | Divergence inspection of 00 baseline | 1 L40S | sdf_only/analysis/20261031_divergence_00_baseline | 0.01 | COMPLETED |
+| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | running/pending | |
+| 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | pending |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
 | 46636/46637, 46700/46701 | full 01b / 07a runs, 200 epochs | | | 0 | CANCELLED before start; replaced with stop_after_epoch=59 (46767–46770) |
 | 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | 0.51 | COMPLETED (0c 703 s, maps 877 s, density 252 s) |
@@ -940,3 +944,88 @@ therefore not yet interpretable as population variability; they need a
 correspondence step (design doc section 6) or a working transform (candidate
 one-factor ablation: translation in normalized units or a higher lr_transform;
 not run, user decision).
+
+### User decisions 2026-10-31 (afternoon): alignment and divergence
+
+1. Alignment must be learned by the model (no external pre-registration). Subjects share
+   orientation; residual offsets of a few mm and head-size differences must be learned.
+   Programme: Step 0 data analysis -> Step 1 switchable transform/staging code -> Step 2 pilots
+   A1-A4 on top of 07a (100 subjects, 40k steps, seed 42). Success = large-vessel recurrence
+   at 3 mm far above the current value without worse individual fits. Report after Step 2.
+2. Scheduler horizon = run length in all NEW pilots and runs (`optimizer.scheduler_epochs: run`).
+   The full 01b/07a runs (46767/46769, started before the decision) keep the 1000-epoch horizon.
+
+### Alignment Step 0 (job 46799, CPU, 497 training subjects; data only)
+
+`analysis/alignment/step0_mask_geometry.py`; outputs sdf_only/analysis/20261031_alignment_step0.
+Vessel = SDF < 0 (identical to label 1). Facts:
+- Vessel centroid offset from the image bbox centre (the model's frame), std x / y / z =
+  1.8 / 5.6 / 2.8 mm (mean -0.3 / +1.6 / -4.1); distance from the mean offset: median 5.0 mm,
+  p95 12.2 mm, max 17.4 mm.
+- Principal extents (sqrt eigenvalues) 32.4 / 27.9 / 19.9 mm, CV 8-11% (head/vessel-tree size
+  variation of ~10%). Vessel volume 12.2 +- 2.0 ml.
+- Principal axes: the smallest-extent axis is within median ~8 deg (mean 9.8, p95 22.6) of the
+  population axis; axes 1 and 2 have similar extents (32 vs 28 mm), so their angles (mean 34-36
+  deg) mostly reflect axis swapping, not rotation (interpretation).
+- Large-vessel recurrence (NEW definition, vatl_sdf/alignment_metrics.py: centreline along
+  edges whose endpoints both have graph radius >= 1.2 mm, densified at 0.4 mm; fraction of other
+  subjects with a LARGE-vessel centreline within d), median over queries:
+  | frame | 1 mm | 2 mm | 3 mm |
+  | --- | ---: | ---: | ---: |
+  | bbox-centred (identity), all 497 | 0.010 | 0.046 | 0.107 |
+  | centroid-translated, all 497 | 0.014 | 0.062 | 0.143 |
+  | bbox-centred, first 100 | 0.010 | 0.040 | 0.101 |
+  | centroid-translated, first 100 | 0.010 | 0.061 | 0.141 |
+  The earlier "~0.25 at 3 mm" (Phase 5 centerline_density) counted other subjects' centreline
+  of ANY calibre, so it is not comparable; the baseline's learned transforms are being re-scored
+  with the new definition (job 46807).
+Interpretation (hypothesis): centroid translation alone gains little (0.107 -> 0.143), so
+rotation/scale and genuine anatomical variability also matter.
+
+### Divergence of the full baseline: what blows up first (job 46800)
+
+`analysis/divergence/inspect_run.py` on all 20 checkpoints; outputs
+sdf_only/analysis/20261031_divergence_00_baseline. Facts (in time order):
+1. From epoch 10 on, with no plateau (LR ~ constant 1e-4, no weight decay): expert weight norms
+   grow monotonically (MoE layer 2 expert 0: 15.4 -> 42.4 at epoch 100 -> 60.7 at 200); latent
+   abs max 0.15 -> 0.36 (epoch 60) -> 0.64 (epoch 100); modulator weight norm 5.9 (epoch 20) ->
+   9.8 (epoch 100); rotations creep (median 1.8 -> 5.2 deg).
+2. SDF L1 leaves its reference band (mean +- 4 std of steps 20k-60k) at step 102k (epoch 61).
+3. Epochs 100-120: latent norm median 3.7 -> 6.7 (max 4.3 -> 11.1), modulator 9.8 -> 23.7;
+   MoE layer 1 routing becomes imbalanced (max expert importance 0.30 -> 0.41 at epoch 110);
+   MoE balance loss leaves its band at step 173k (epoch 104).
+4. Epochs 110 -> 120: gradient explosion: Adam second moments jump by 1e5 (backbone) to 1e7
+   (transforms) and keep growing to 1e16-1e19 by epoch 200; latent norms reach 11.6 (max 33).
+Conclusion: unregularized parameter growth (latents, modulator, experts) under a constant LR
+comes first; loss degradation follows; MoE routing imbalance and the gradient explosion come
+last. Mechanism (hypothesis): growing SIREN weights/latents raise effective frequencies until
+optimization becomes unstable. Mitigations now in new runs: decaying LR (horizon = run length);
+A3/A4 add an L2 latent prior. Weight decay is a further candidate (not run).
+
+### Alignment Step 1 (code; commit ea97105; tests/test_alignment.py, 70 tests pass)
+
+- `model.transform`: mode legacy (default, unchanged parameter table and optimizer groups) |
+  normalized (rotation rad, translation in bbox half-lengths, separate Adam groups lr_rotation /
+  lr_translation / lr_scale); type rigid | affine (log-scale + shear, `affine_reg_weight` on
+  their mean square); `mean_identity` (effective params minus their population mean: fixes the
+  global gauge); `centroid_init` (translation_i = mean(c) - c_i from vessel centroids).
+- `alignment` section: stage 1 for `epochs` epochs with latents gated to zero (all subjects decode
+  one template) and loss = SDF L1 at a wider truncation (`sdf_truncation_mm`, head units
+  unchanged) + L1 of a dedicated head predicting distance to the large-vessel centreline (local
+  radius = -reference SDF >= 1.2 mm); stage 2 = normal losses + `latent_prior_weight` x mean
+  squared latent norm. Latents start at zero.
+- `optimizer.scheduler_epochs: run`; `transforms.jsonl` per epoch (rotation, translation,
+  scale, anisotropy, latent norms); pilot launcher adds `analysis/alignment/evaluate_alignment.py`
+  (transform stats + recurrence in bbox / centroid / learned frames).
+- SDFModel.maps_mm gives template_mm = A_i (world - image centre_i) + t_i for all modes;
+  centerline_density uses it.
+
+### Alignment Step 2 pilots (submitted; frozen b6ac683; 100 subj, 40k steps, seed 42)
+
+| Pilot | Config | One change vs |
+| --- | --- | --- |
+| C0 | 08_c0_runhorizon | 07a: scheduler horizon = run length (control) |
+| A1 | 09_a1_normalized_transform | C0: normalized-unit transforms (+ mean identity; same numeric lr 1e-4) |
+| A2 | 10_a2_centroid_init | A1: centroid initialization |
+| A3 | 11_a3_staged | A1: staged training (10 of 40 epochs alignment stage) |
+| A4 | 12_a4_staged_affine | A3: regularized affine |
