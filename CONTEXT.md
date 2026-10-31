@@ -625,7 +625,7 @@ the largest mask component). Do not bridge graph pieces now. Possible later step
 bridging that only adds connections inside a single mask component (never between
 mask components).
 
-### Phase 0c: checkpoint diagnostics — pending (checkpoint not yet on helix)
+### Phase 0c: checkpoint diagnostics — done on full 00_sdf_baseline (2026-10-31; see end of file)
 
 ### 2026-10-30 (late): user authorization and output location
 
@@ -697,11 +697,11 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46230 | Phase 0a/0b correspondence + stats, 552 subjects (CPU) | -p l40s, dev, 16 CPU | claude_pilots/20261030_graph_correspondence | 0 | COMPLETED 4 min 49 s |
 | 46325 | Phase 1 smoke (3 L40S) | 32 CPUs requested | — | 0 | CANCELLED: not schedulable (node has 16 free CPUs) |
 | 46330 | Phase 1 smoke, DDP 3 L40S, 8 subj, 200+100 steps | 16 CPUs | sdf_only/pilots/20261030_phase1_smoke_ddp | 0.13 | COMPLETED 2.5 min, SMOKE_OK |
-| 46332 | FULL 00_sdf_baseline, 497 subj, 200 epochs (part 1) | 3 L40S, 24 h | sdf_only/runs/00_sdf_baseline_full | running | |
+| 46332 | FULL 00_sdf_baseline, 497 subj, 200 epochs (part 1) | 3 L40S, 24 h | sdf_only/runs/00_sdf_baseline_full | 44.5 | COMPLETED 14 h 51 min (diverged late, see divergence) |
 | 46333 | continuation of 46332 (afterany) | | | 0 | CANCELLED: would import live code; replaced by 46342 |
 | 46335–46339 | pilots 01–05 (first submission) | | | 0 | CANCELLED before start: live code tree; replaced by 46343–46347 |
 | 46334 | Phase 2 pilot 00_sdf_baseline (100 subj, 40k steps) + diagnostics | 1 L40S | sdf_only/pilots/20261030_p2_00_sdf_baseline | 1.80 | COMPLETED 1 h 48 min, PILOT_OK |
-| 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | pending | |
+| 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | 0.02 | COMPLETED 23 s (stop guard, no updates) |
 | 46343 | Phase 2 pilot 01_centerline_sdf | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_01_centerline_sdf | 2.03 | COMPLETED, PILOT_OK; degenerate field (see screening) |
 | 46344 | Phase 2 pilot 02_centerline_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_02_centerline_hinge | 2.03 | COMPLETED; degenerate field |
 | 46345 | Phase 2 pilot 03_edge_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_03_edge_hinge | 2.04 | COMPLETED; degenerate field |
@@ -721,7 +721,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
 | 46636/46637, 46700/46701 | full 01b / 07a runs, 200 epochs | | | 0 | CANCELLED before start; replaced with stop_after_epoch=59 (46767–46770) |
 | 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | running | |
-| 46765 | 0c on baseline step 99600 (epoch 60) | 1 L40S | sdf_only/analysis/20261031_00_baseline_step99600 | running | |
+| 46765 | 0c on baseline step 99600 (epoch 60) | 1 L40S | sdf_only/analysis/20261031_00_baseline_step99600 | 0.21 | COMPLETED |
 | 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | pending | |
 | 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | pending | |
@@ -881,3 +881,35 @@ Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
 drift. Pilot 00 shows the same rise after ~10k (0.123 -> 0.137). Not yet explained;
 learning rate / MoE routing are candidate explanations (hypotheses).
+
+### Phase 0c on the full 00_sdf_baseline (jobs 46764/46765; 2026-10-31)
+
+`analysis/phase0_graph/diagnose_checkpoint.py --factors 1 2 --atlas-spacings 1 0.5` on
+6 training subjects (3 per sex, age quantiles of the 497) at epoch 20 (step 33200)
+and epoch 60 (step 99600); final checkpoint pending (job 46766). Outputs:
+sdf_only/analysis/20261031_00_baseline_step{33200,99600}/0c.
+
+| Median of 6 | epoch 20 | epoch 60 |
+| --- | ---: | ---: |
+| Dice native / 2x supersampled | 0.26 / 0.27 | 0.34 / 0.34 |
+| band MAE mm (x1) | 1.63 | 1.61 |
+| volume ratio (x1) | 0.87 | 1.44 |
+| >= 10-voxel component ratio (x1) | 5.5 | 7.1 |
+| largest-fraction difference (x1) | -0.61 | -0.32 |
+| centreline inside floor / 0.9-1.2 / 1.2-1.6 / >= 1.6 | 0.05 / 0.16 / 0.46 / 0.90 | 0.13 / 0.49 / 0.81 / 0.98 |
+| atlas 1 mm: voxels, 26-comps, largest, >= 10 vox | 20.2 k, 707, 0.66, 99 | 23.1 k, 689, 0.64, 104 |
+| atlas 0.5 mm: voxels, 26-comps, largest, >= 10 vox | 162 k, 1034, 0.65, 498 | 185 k, 1007, 0.63, 486 |
+
+Conclusion: CASE 1 (individual fits broken). Evidence: on TRAINING subjects the
+zero level reaches Dice <= 0.34 with band MAE ~1.6 mm (about two in-plane voxels),
+5-7x the reference's >= 10-voxel components, and one-voxel (floor) vessels are
+almost entirely missed (5-13% of supported floor nodes inside vs 95% for the
+reference). 2x supersampling changes nothing (not a sampling artefact). The atlas
+is not more fragmented than the individual decodings (largest 0.63-0.66 of its
+voxels; 0.5 mm grid gives the same connectivity as 1 mm), so no additional Case 2
+failure is visible at this stage; Case 2 cannot be judged properly while
+individual fits are this poor. Epoch 60 fits better than epoch 20 although the
+training SDF L1 is slightly higher (0.115 vs 0.111; fact; reason not established).
+Relation to screening: the pilot 07a centreline-distance head reached Dice 0.79
+on its (different) 6 pilot subjects, so the Phase 4 head directly targets the
+Case 1 failure; the full 07a run (stop epoch 59) tests this at scale.
