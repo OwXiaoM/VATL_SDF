@@ -710,7 +710,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46530 | Phase 2 pilot 02b_centerline_hinge_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_02b_centerline_hinge_pointweight | 2.03 | COMPLETED |
 | 46531 | Phase 2 pilot 03b_edge_hinge_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_03b_edge_hinge_pointweight | 2.03 | COMPLETED |
 | 46532 | Phase 2 pilot 04b_all_graph_terms_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_04b_all_graph_terms_pointweight | 2.51 | COMPLETED; partial inflation |
-| 46533 | Phase 2 pilot 05b_radius_regression_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_05b_radius_regression_pointweight | running | |
+| 46533 | Phase 2 pilot 05b_radius_regression_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_05b_radius_regression_pointweight | 2.04 | COMPLETED |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | 2.04 | COMPLETED, PILOT_OK |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
@@ -733,6 +733,7 @@ native grid; reference-relative connectivity). Rows added as pilots finish.
 | 02b centerline_hinge (w 0.15) | 0.338 | 1.43 | 0.87 | 3.47 | -0.50 | 0.10 / 0.37 / 0.74 / 1.00 | 882 (0.46), 16.0 k voxels | 0.094 |
 | 03b edge_hinge (w 0.15) | 0.177 | 1.63 | 1.69 | 9.66 | -0.58 | 0.09 / 0.21 / 0.42 / 0.85 | 1724 (0.61), 29.4 k voxels | 0.111 |
 | 04b all three (w 0.15 each) | 0.083 | 2.04 | 6.85 | 6.81 | +0.01 | 0.30 / 0.47 / 0.54 / 0.60 | 1175 (0.98), 168 k voxels | 0.130 |
+| 05b radius (w 0.15) | 0.207 | 1.69 | 1.95 | 7.96 | -0.24 | 0.12 / 0.35 / 0.66 / 0.87 | 1660 (0.74), 26.6 k voxels | 0.129 |
 
 Observation (fact): at pilot scale individual fits are poor (Dice 0.18, 5.4x
 the reference's >=10-voxel components), so pilot comparisons measure early
@@ -791,6 +792,30 @@ voxels; its higher floor inside fraction (0.30) and largest-fraction difference
 terms together add 0.45 x SDF points whose targets are all <= ~0 (hinges push down
 only), i.e. the 01-03 mechanism at smaller scale (hypothesis). The union is not a
 candidate as configured.
+05b (job 46533): small gains in Dice (0.21) and centreline recall, volume up (1.95),
+more >= 10-voxel pieces (7.96), largest-fraction difference closest to 0 among
+non-inflated pilots (-0.24).
+
+#### Phase 2 screening conclusion (2026-10-31; screening evidence only)
+
+Facts (100 subjects, 40k steps, seed 42, 6 training subjects):
+1. Weight 1.0 per graph term (~6.7x per point) collapses the field to mostly
+   negative for all three terms tested (01, 02, 03). Per-point weight equal to an
+   SDF sample (0.15) does not collapse for any single term.
+2. 01b (centreline SDF, the user's default term) gives the best individual fits:
+   Dice 0.18 -> 0.37, band MAE 1.73 -> 1.38 mm, volume 0.95, SDF L1 0.139 -> 0.086,
+   centreline inside fraction up in every radius bin.
+3. 02b (node hinge) is second on fits (Dice 0.34) and the only variant with fewer
+   >= 10-voxel pieces than 00 (3.47 vs 5.40).
+4. No non-inflated variant makes the largest component relatively larger than 00's
+   except 05b (-0.24 vs -0.33), which fits worse. Fragmentation is not solved by any
+   single term at pilot scale.
+5. 03b (edge hinge) gives no gain; 04b (union) partly inflates.
+Selection: 01b is the Phase 2 candidate (default term, best fit, no collapse).
+Caveats: one seed; 6 subjects; 01b adds 15% points per step (compute not matched);
+pilot fits are far from converged (00 Dice 0.18 vs full-run status TBD by 0c).
+Next: full 01b run (3 L40S, same schedule as 00) for confirmation; Phase 4 field
+heads screened on top of 01b, one head per pilot.
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
