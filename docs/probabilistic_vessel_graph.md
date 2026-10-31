@@ -124,4 +124,11 @@ Filled from Phase 5 runs; see CONTEXT.md for job IDs.
   because ~10 cones overlap at each point (-k log n); a pairwise polynomial smooth min or a
   per-point top-2 smooth min is needed for a fair smooth union. Outputs:
   `training_outputs/sdf_only/analysis/20261030_phase5_render/`.
-* Population centreline density / recurrence vs calibre: pending the full 00_sdf_baseline checkpoint.
+* Population centreline density / recurrence vs calibre (00_sdf_baseline, epoch 20 checkpoint; 497
+  subjects; rigid transforms from the INR): median fraction of other subjects with a centreline within
+  1 / 2 / 3 mm is 0.02 / 0.08 / 0.17 for floor-radius nodes and 0.03 / 0.12 / 0.25 for radius >= 1.6 mm,
+  almost independent of calibre. The learned rigid transforms are nearly identity (translation median
+  0.09 mm, rotation 2.6 deg), so template space is bbox-centred native space. Recurrence is therefore
+  dominated by misalignment (failure mode (a) of section 4) and is not yet usable as a label-free
+  signal: a correspondence step (section 6) is a prerequisite for the consensus graph. Outputs:
+  `training_outputs/sdf_only/analysis/20261031_00_baseline_step33200/centerline_density/`.

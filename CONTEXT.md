@@ -720,9 +720,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
 | 46636/46637, 46700/46701 | full 01b / 07a runs, 200 epochs | | | 0 | CANCELLED before start; replaced with stop_after_epoch=59 (46767–46770) |
-| 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | running | |
+| 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | 0.51 | COMPLETED (0c 703 s, maps 877 s, density 252 s) |
 | 46765 | 0c on baseline step 99600 (epoch 60) | 1 L40S | sdf_only/analysis/20261031_00_baseline_step99600 | 0.21 | COMPLETED |
-| 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | pending | |
+| 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | 0.21 | COMPLETED; collapsed field |
 | 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
@@ -913,3 +913,30 @@ training SDF L1 is slightly higher (0.115 vs 0.111; fact; reason not established
 Relation to screening: the pilot 07a centreline-distance head reached Dice 0.79
 on its (different) 6 pilot subjects, so the Phase 4 head directly targets the
 Case 1 failure; the full 07a run (stop epoch 59) tests this at scale.
+
+Final checkpoint (epoch 200, step 332000; job 46766): collapsed field, median Dice
+0.02, volume ratio 36.8 (like the weight-1.0 pilots) -> confirms the divergence.
+
+### Phase 3 / Phase 5 on baseline epoch 20 (job 46764; 2026-10-31)
+
+Population maps (vatl_sdf.population_maps, 1 mm, age 20, each subject decoded with
+its own age/sex; runtime 850 s for 72 subjects with weight >= 1e-4): mean-latent
+atlas 20.2 k voxels / 707 comps (largest 0.66); frequency >= 0.1: 26.4 k voxels,
+754 comps, largest 0.93; >= 0.25: 3.1 k voxels; >= 0.5: 18 voxels. Individual
+decodings barely overlap above 50%. Outputs:
+sdf_only/analysis/20261031_00_baseline_step33200/population_maps_1mm.
+Centreline density / recurrence (497 subjects, 300 nodes each, rigid transforms
+from the checkpoint; 252 s): median fraction of other subjects with a centreline
+within 1 / 2 / 3 mm: floor 0.02 / 0.08 / 0.17; 0.9-1.6 mm 0.03 / 0.12 / 0.24;
+>= 1.6 mm 0.03 / 0.12 / 0.25. Recurrence barely depends on calibre.
+Learned rigid transforms (fact): translation median 0.09 mm (95%: 0.17 mm) at epoch
+20 and 0.21 mm (0.42) at epoch 60; rotation median 2.6 deg (4.6) and 4.2 deg (7.8).
+Translations are parameters in mm with lr 1e-4, so they effectively stay at 0:
+template space = each image's bbox centre, i.e. no real registration.
+Interpretation (hypothesis, strongly suggested): low recurrence, even for large
+vessels that every subject has, and the near-empty frequency >= 0.5 map are
+dominated by misalignment, not anatomical variability. Phase 3/5 statistics are
+therefore not yet interpretable as population variability; they need a
+correspondence step (design doc section 6) or a working transform (candidate
+one-factor ablation: translation in normalized units or a higher lr_transform;
+not run, user decision).
