@@ -720,7 +720,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46799 | Alignment Step 0 (CPU) | dev, 16 CPU, frozen ce77ff2 | sdf_only/analysis/20261031_alignment_step0 | 0 | COMPLETED 1.5 min |
 | 46800 | Divergence inspection of 00 baseline | 1 L40S | sdf_only/analysis/20261031_divergence_00_baseline | 0.01 | COMPLETED |
-| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | | C0, A1, A2 done (2 h 05 each), A3 done (2 h 01); A4 running |
+| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | ~10 | COMPLETED (2 h 00–2 h 05 each) |
 | 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | COMPLETED |
 | 46808/46811 | CPU smoke of A4 config (+centroid init) on 2 real subjects, 8 steps | dev, 8 CPU | sdf_only/pilots/20261031_al_smoke_cpu{,2} | 0 | 46808 refused (max_subjects needs max_steps); 46811 SMOKE_OK |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
@@ -730,7 +730,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | 0.21 | COMPLETED; collapsed field |
 | 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | 16.2 | COMPLETED 5 h 23 (checkpoints to step 99600 = epoch 60); continuation: stop guard, no updates |
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | 15.3 | COMPLETED 5 h 07 (to step 99600); continuation: stop guard, no updates |
-| 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | | 01b done (12 min each); 07a running |
+| 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | 0.8 | COMPLETED (12 min each) |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
@@ -1046,6 +1046,7 @@ subjects, large vessels r >= 1.2 mm, fraction of other subjects within d; identi
 | A1 | 0.930 | 0.53 | 1.34 | 0.023 | 3679 / 0.30 | 1.65 | 1.95 | 0.010/0.071/0.162 |
 | A2 | 0.934 | 0.48 | 1.22 | 0.021 | 4558 / 0.31 | 1.65 | 5.37 | 0.020/0.091/0.202 |
 | A3 | 0.911 | 0.59 | 1.52 | 0.026 | 3982 / 0.24 | 4.15 | 5.30 | 0.030/0.121/0.263 |
+| A4 | 0.921 | 0.54 | 1.39 | 0.024 | 4235 / 0.29 | 4.48 | 5.29 | 0.030/0.141/0.313 |
 
 - Fact: run-length horizon alone (C0 vs 07a) raises Dice 0.79 -> 0.93 and lowers the component ratio
   2.7 -> 1.4. Transforms stay near identity (translation 0.07 mm); learned recurrence 0.111 at 3 mm is
@@ -1061,22 +1062,38 @@ subjects, large vessels r >= 1.2 mm, fraction of other subjects within d; identi
   the alignment stage (translation median 1.3/2.5/3.8/5.1 mm at epochs 0/2/5/9; 5.2 -> 5.3 mm afterwards), and
   were still moving when it ended at epoch 10. Hypothesis: a longer alignment stage would go further.
 
-### Phase 0c on the full 01b run (jobs 46829/46830; old 1000-epoch horizon, stopped at epoch 59)
+### Phase 0c on the full 01b and 07a runs (jobs 46829–46832; old 1000-epoch horizon, stopped at epoch 59)
 
 Medians of the same 6 training subjects as the baseline 0c (x1 grid unless stated):
 
-| | baseline e20 | baseline e60 | 01b e20 | 01b e60 |
-| --- | ---: | ---: | ---: | ---: |
-| Dice (x2) | 0.26 (0.27) | 0.34 (0.34) | 0.24 (0.24) | 0.25 (0.25) |
-| band MAE mm | 1.63 | 1.61 | 1.67 | 1.71 |
-| volume ratio | 0.87 | 1.44 | 1.21 | 2.27 |
-| >= 10-voxel component ratio | 5.5 | 7.1 | 10.3 | 9.5 |
-| largest-fraction difference | -0.61 | -0.32 | -0.59 | -0.17 |
-| centreline inside given ref inside | 0.11 | – | 0.13 | 0.26 |
-| atlas 1 mm: voxels, 26-comps, largest, >= 10 vox | 20.2 k, 707, 0.66, 99 | 23.1 k, 689, 0.64, 104 | 31.8 k, 1461, 0.43, 197 | 42.4 k, 1992, 0.76, 205 |
+| | baseline e20 | baseline e60 | 01b e20 | 01b e60 | 07a e20 | 07a e60 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dice (x2) | 0.26 (0.27) | 0.34 (0.34) | 0.24 (0.24) | 0.25 (0.25) | 0.24 (0.25) | 0.29 (0.29) |
+| band MAE mm | 1.63 | 1.61 | 1.67 | 1.71 | 1.62 | 1.47 |
+| volume ratio | 0.87 | 1.44 | 1.21 | 2.27 | 1.34 | 1.80 |
+| >= 10-voxel component ratio | 5.5 | 7.1 | 10.3 | 9.5 | 10.1 | 8.4 |
+| largest-fraction difference | -0.61 | -0.32 | -0.59 | -0.17 | -0.51 | -0.38 |
+| centreline inside given ref inside | 0.11 | – | 0.13 | 0.26 | 0.16 | 0.30 |
+| atlas 1 mm: voxels, 26-comps, largest, >= 10 vox | 20.2 k, 707, 0.66, 99 | 23.1 k, 689, 0.64, 104 | 31.8 k, 1461, 0.43, 197 | 42.4 k, 1992, 0.76, 205 | 30.6 k, 940, 0.61, 229 | 38.0 k, 833, 0.66, 191 |
 
 - Fact: at full scale 01b is still Case 1 (Dice <= 0.25, MAE ~1.7 mm), unlike its pilot (Dice 0.37) and far
   from the run-length-horizon pilots (Dice ~0.93). The graph term does not fix individual fits at full
   scale under the old horizon; its volume grows (2.3x at epoch 60) and fragmentation is about 1.5x the baseline's.
 - Hypothesis (untested): the gap between pilots and full runs is dominated by the learning-rate schedule
   (near-constant lr under the 1000-epoch horizon) and by per-subject optimisation budget, not by the graph term.
+- Fact: full 07a is also Case 1 (Dice 0.24/0.29, MAE 1.6/1.5 mm), slightly better than full 01b at epoch 60
+  and with a less fragmented atlas (833 vs 1992 components), but far from its pilot (Dice 0.79) and the
+  run-length-horizon pilots (~0.93).
+
+### Step 2 conclusion (screening evidence, 100 subjects, 6 diagnostic subjects for fits)
+
+- A4 (A1 + staged + regularized affine) gives the highest large-vessel recurrence: 0.030/0.141/0.313 at
+  1/2/3 mm (3 mm mean 0.331), vs 0.101 identity, 0.141 centroid-only, 0.111 C0 (2.2x centroid-only, 2.8x C0).
+  Fits are close to C0 (Dice 0.921 vs 0.929, MAE 0.54 vs 0.52 mm, component ratio 1.39 vs 1.41, SDF L1 0.024
+  vs 0.022). Learned scale p5-p95 0.955-1.050, anisotropy median 1.06, rotation 4.5 deg, translation 5.3 mm.
+- Ranking of single changes on recurrence (3 mm): staging (A3 vs A1: +0.10) > centroid init (A2 vs A1: +0.04)
+  ~ normalized units (A1 vs C0: +0.05) ~ affine (A4 vs A3: +0.05; also recovers fits lost by staging).
+- The user's "~0.25" used any-calibre matching; on the large-vessel definition the matched references are
+  0.101 (identity) and 0.111 (C0). A4's 0.313 is numerically above 0.25 on the stricter definition.
+- Not tested: combining centroid init with staging; a longer alignment stage (transforms still moving at
+  epoch 10); behaviour at full scale.
