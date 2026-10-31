@@ -721,7 +721,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46799 | Alignment Step 0 (CPU) | dev, 16 CPU, frozen ce77ff2 | sdf_only/analysis/20261031_alignment_step0 | 0 | COMPLETED 1.5 min |
 | 46800 | Divergence inspection of 00 baseline | 1 L40S | sdf_only/analysis/20261031_divergence_00_baseline | 0.01 | COMPLETED |
 | 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | running/pending | |
-| 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | pending |
+| 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | COMPLETED |
+| 46808/46811 | CPU smoke of A4 config (+centroid init) on 2 real subjects, 8 steps | dev, 8 CPU | sdf_only/pilots/20261031_al_smoke_cpu{,2} | 0 | 46808 refused (max_subjects needs max_steps); 46811 SMOKE_OK |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
 | 46636/46637, 46700/46701 | full 01b / 07a runs, 200 epochs | | | 0 | CANCELLED before start; replaced with stop_after_epoch=59 (46767–46770) |
 | 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | 0.51 | COMPLETED (0c 703 s, maps 877 s, density 252 s) |
@@ -977,8 +978,12 @@ Vessel = SDF < 0 (identical to label 1). Facts:
   | bbox-centred, first 100 | 0.010 | 0.040 | 0.101 |
   | centroid-translated, first 100 | 0.010 | 0.061 | 0.141 |
   The earlier "~0.25 at 3 mm" (Phase 5 centerline_density) counted other subjects' centreline
-  of ANY calibre, so it is not comparable; the baseline's learned transforms are being re-scored
-  with the new definition (job 46807).
+  of ANY calibre, so it is not comparable. Re-scored with the new definition (job 46807), the
+  full baseline's epoch-20 learned rigid transforms give 0.010 / 0.051 / 0.121 (first 100) and
+  0.012 / 0.052 / 0.121 (all 497): between identity and centroid translation. The bbox and
+  centroid rows of job 46807 reproduce Step 0 exactly (consistency check).
+  Reference values for Step 2 (first 100, 3 mm): identity 0.101, baseline learned 0.121,
+  centroid 0.141.
 Interpretation (hypothesis): centroid translation alone gains little (0.107 -> 0.143), so
 rotation/scale and genuine anatomical variability also matter.
 
