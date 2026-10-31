@@ -12,6 +12,7 @@ import nibabel as nib
 import torch
 from torch.utils.data import Dataset
 from scipy.ndimage import map_coordinates
+from scipy.spatial import cKDTree
 from .config import condition_vector, field_names, graph_terms
 from .graph_fields import build_centerline, field_targets
 from .graph_coords import (MaskDistance, load_graph, mask_support, normalize_world, supported_edges, voxel_to_world,
@@ -107,9 +108,40 @@ def load_subject(row, config):
         report.update(graph_nodes_supported=int(graph['supported'].sum()),
                       graph_edges_supported=int(graph['edge_supported'].sum()))
     subject = {'sdf':sdf,'affine':affine,'valid':valid,'graph':graph,'report':report}
-    if field_names(config):
+    if field_names(config) or alignment_enabled(config):
         subject['centerline'] = build_centerline(subject, config['graph_fields'])
+    if alignment_enabled(config):
+        c = subject['centerline']
+        large = c['tree'].data[c['radius'] >= config['alignment']['large_vessel_min_radius_mm']] if c is not None else np.zeros((0, 3))
+        subject['align_tree'] = cKDTree(large) if len(large) else None
     return subject
+
+
+def alignment_enabled(config):
+    return bool(config.get('alignment', {}).get('enabled'))
+
+
+def alignment_targets(subject, world, config):
+    """Distance (mm) to the large-vessel centreline (local radius = -reference SDF >= threshold), clamped at the
+    alignment truncation; weight 0 for subjects without large-vessel centreline."""
+    limit = config['alignment']['sdf_truncation_mm']
+    if subject.get('align_tree') is None:
+        return np.full((len(world), 1), limit, np.float32), np.zeros((len(world), 1), np.float32)
+    distance = subject['align_tree'].query(world, distance_upper_bound=limit)[0]
+    return np.minimum(distance, limit).astype(np.float32)[:, None], np.ones((len(world), 1), np.float32)
+
+
+def vessel_centroids(frame, config):
+    """Vessel (SDF < 0) centroid of every subject in its own normalized coordinates (bbox-centre frame)."""
+    out = []
+    for _, row in frame.iterrows():
+        image = nib.load(row['SDF'])
+        sdf = np.asarray(image.dataobj, dtype=np.float32)
+        if sdf.ndim == 4:
+            sdf = sdf[..., 0]
+        world = voxel_to_world(image.affine, np.argwhere(sdf < 0))
+        out.append(normalize_world(world.mean(0, keepdims=True), image.affine, sdf.shape, config['data']['world_bbox_mm'])[0])
+    return np.asarray(out, dtype=np.float32)
 
 
 def graph_support(mask, affine, graph, settings):
@@ -212,7 +244,7 @@ def sample_pools(pools, fractions, count, rng):
                      'empty_pools':[k for k in names if not len(pools[k])]}
 
 
-def sample_sdf(subject, config, rng):
+def sample_sdf(subject, config, rng, alignment_stage=False):
     valid = subject['valid']; sdf = subject['sdf'].ravel()
     band = config['sampling']['sdf']['surface_band_mm']
     surface = valid[np.abs(sdf[valid])<=band]
@@ -228,8 +260,11 @@ def sample_sdf(subject, config, rng):
               'sdf_target_mm':sdf[si,None].copy(), 'sampling_report':{'sdf':sr}}
     if 'centerline' in subject:
         world = voxel_to_world(subject['affine'], np.column_stack(np.unravel_index(si, subject['sdf'].shape)))
-        result['field_target'], result['field_weight'] = field_targets(subject['centerline'], world, config['graph_fields'],
-                                                                       config['sdf']['truncation_mm'])
+        if field_names(config):
+            result['field_target'], result['field_weight'] = field_targets(subject['centerline'], world, config['graph_fields'],
+                                                                           config['sdf']['truncation_mm'])
+        if alignment_stage:
+            result['align_target'], result['align_weight'] = alignment_targets(subject, world, config)
     return result
 
 
@@ -261,7 +296,8 @@ class SDFGraphDataset(Dataset):
         subject = self.subject(index)
         # Independent of worker scheduling/rank; fully reproducible at epoch boundaries.
         rng = np.random.default_rng(np.random.SeedSequence([self.config['seed'],self.epoch,index]))
-        result = sample_sdf(subject,self.config,rng)
+        stage = alignment_enabled(self.config) and self.epoch < self.config['alignment']['epochs']
+        result = sample_sdf(subject,self.config,rng,alignment_stage=stage)
         if graph_terms(self.config):
             graph, report = sample_graph(subject,self.config,rng)
             result.update(graph);result['sampling_report']['graph'] = report

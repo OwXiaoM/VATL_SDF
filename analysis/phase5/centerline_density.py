@@ -1,8 +1,8 @@
 """Phase 5: population centreline density in template space and recurrence vs calibre.
 
 Each training subject's graph (mask-supported edges, snapped nodes) is mapped into template space by
-the subject's LEARNED rigid transform: the model decodes subject i at subject-normalized coordinates u
-as the template decoder at rigid_transform(u, transform_i) (verified in tests/test_template_mapping.py).
+the subject's LEARNED transform (SDFModel.maps_mm: template_mm = A_i (world - image centre_i) + t_i, for legacy
+rigid and normalized rigid/affine parameterizations; direction verified in tests/test_template_mapping.py).
 Outputs:
 - CentrelineDensity.nii.gz: expected centreline length (mm) per template voxel per subject, from
   samples every 0.5 mm splatted with a Gaussian (sigma 1 mm); also per calibre bin (graph radius
@@ -24,12 +24,13 @@ from scipy.spatial import cKDTree
 from vatl_sdf.dataset import graph_support
 from vatl_sdf.graph_coords import edge_samples, load_graph, normalize_world
 from vatl_sdf.inference import world_grid
-from vatl_sdf.model import rigid_transform
+from vatl_sdf.model import SDFModel
 
 BINS = [('floor', 0, 0.801), ('0.9-1.6', 0.801, 1.6), ('>=1.6', 1.6, np.inf)]
 
 
 def template_points(row, transform, config):
+    """transform: (A (3, 3), t_mm (3,)) from SDFModel.maps_mm."""
     image = nib.load(row.SDF)
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     g = load_graph(row.Graph)
@@ -37,10 +38,10 @@ def template_points(row, transform, config):
     edges = g['edges'][g['edge_supported']]
     points, owner = edge_samples(g['snapped'], edges, step_mm=0.5)
     radius = np.maximum(g['radius'][edges[owner, 0]], g['radius'][edges[owner, 1]])
-    u = normalize_world(points, image.affine, sdf.shape, config['data']['world_bbox_mm'])
-    half = torch.tensor(config['data']['world_bbox_mm'], dtype=torch.float32) / 2
-    t = rigid_transform(torch.tensor(u, dtype=torch.float32), torch.as_tensor(transform)[None].expand(len(u), -1), half)
-    return (t.numpy() * half.numpy()), radius  # template coordinates in mm (centred)
+    half = np.asarray(config['data']['world_bbox_mm'], dtype=np.float64) / 2
+    centred = normalize_world(points, image.affine, sdf.shape, config['data']['world_bbox_mm']) * half
+    a, t = transform
+    return centred @ a.T + t, radius  # template coordinates in mm (centred)
 
 
 def main():
@@ -53,7 +54,9 @@ def main():
     config, frame = checkpoint['config'], pd.DataFrame(checkpoint['metadata'])
     if 'graph' not in config:
         config['graph'] = {'support_tolerance_mm': 0.4, 'support_strict': False, 'edge_step_mm': 0.4}
-    transforms = checkpoint['model']['transforms'].numpy()
+    model = SDFModel(config, len(frame)); model.load_state_dict(checkpoint['model'])
+    matrices, translations = (x.double().numpy() for x in model.maps_mm())
+    transforms = list(zip(matrices, translations))
     if a.max_subjects:
         frame = frame.head(a.max_subjects)
     config['atlas']['spacing_mm'] = [1, 1, 1]

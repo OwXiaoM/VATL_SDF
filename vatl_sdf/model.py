@@ -7,15 +7,30 @@ from .config import field_names
 from .graph_fields import FIELDS
 
 
-def rigid_transform(coords, parameters, half_bbox):
-    """Proper XYZ Euler rotations in physical mm; translation parameters are mm."""
-    a,b,c = parameters[:,:3].unbind(-1)
+def euler_rotation(angles):
+    """Proper XYZ Euler rotation matrices (n, 3, 3) from angles (n, 3) in radians."""
+    a,b,c = angles.unbind(-1)
     ca,sa,cb,sb,cc,sc = a.cos(),a.sin(),b.cos(),b.sin(),c.cos(),c.sin()
     rows = [cc*cb,cc*sb*sa-sc*ca,cc*sb*ca+sc*sa,
             sc*cb,sc*sb*sa+cc*ca,sc*sb*ca-cc*sa,
             -sb,cb*sa,cb*ca]
-    rotation = torch.stack(rows,dim=-1).reshape(-1,3,3)
+    return torch.stack(rows,dim=-1).reshape(-1,3,3)
+
+
+def rigid_transform(coords, parameters, half_bbox):
+    """Proper XYZ Euler rotations in physical mm; translation parameters are mm."""
+    rotation = euler_rotation(parameters[:,:3])
     return (torch.einsum('nij,nj->ni',rotation,coords*half_bbox)+parameters[:,3:])/half_bbox
+
+
+def linear_part(rotation, log_scale=None, shear=None):
+    """A = R diag(exp(s)) H (mm -> mm), H unit upper-triangular with entries (h01, h02, h12)."""
+    a = euler_rotation(rotation)
+    if log_scale is not None:
+        h = torch.eye(3, device=rotation.device, dtype=rotation.dtype).repeat(len(rotation), 1, 1)
+        h[:, 0, 1], h[:, 0, 2], h[:, 1, 2] = shear[:, 0], shear[:, 1], shear[:, 2]
+        a = a @ torch.diag_embed(log_scale.exp()) @ h
+    return a
 
 
 class SDFModel(nn.Module):
@@ -25,7 +40,22 @@ class SDFModel(nn.Module):
         m = config['model']; self.model_config = m
         shape = m['latent_shape']
         self.latents = nn.Parameter(torch.randn(num_subjects,*shape)*m['latent_std'])
-        self.transforms = nn.Parameter(torch.zeros(num_subjects,6),requires_grad=m['rigid'])
+        # Subject -> template maps. legacy: one (N, 6) table [Euler rad, translation mm] (unchanged default).
+        # normalized: separate tables (own learning rates): rotation (rad), translation in units of the bbox
+        # half-lengths, and for affine log-scale + shear; optionally the population mean is fixed at identity.
+        t = m.get('transform', {})
+        self.transform_mode = t.get('mode', 'legacy'); self.transform_type = t.get('type', 'rigid')
+        self.mean_identity = bool(t.get('mean_identity', False))
+        if self.transform_mode == 'legacy':
+            self.transforms = nn.Parameter(torch.zeros(num_subjects,6),requires_grad=m['rigid'])
+        else:
+            self.transforms = None
+            self.transform_rotation = nn.Parameter(torch.zeros(num_subjects,3),requires_grad=m['rigid'])
+            self.transform_translation = nn.Parameter(torch.zeros(num_subjects,3),requires_grad=m['rigid'])
+            if self.transform_type == 'affine':
+                self.transform_log_scale = nn.Parameter(torch.zeros(num_subjects,3),requires_grad=m['rigid'])
+                self.transform_shear = nn.Parameter(torch.zeros(num_subjects,3),requires_grad=m['rigid'])
+        self.latent_gate = 1.0  # 0 during an alignment stage: every subject decodes the shared template
         self.register_buffer('half_bbox',torch.tensor(config['data']['world_bbox_mm'],dtype=torch.float32)/2.)
         k = m['convolution_kernel']
         if k and (k < 1 or k%2==0):
@@ -48,6 +78,40 @@ class SDFModel(nn.Module):
         nn.init.zeros_(self.sdf_head.bias)
         # Optional Phase 4 heads (created only when enabled, so the baseline is unchanged).
         self.field_heads = nn.ModuleDict({name: nn.Linear(head_features, FIELDS[name]) for name in field_names(config)})
+        # Alignment-stage head: distance to the large-vessel centreline (created only when alignment is enabled).
+        if config.get('alignment', {}).get('enabled'):
+            self.field_heads['align_distance'] = nn.Linear(head_features, 1)
+
+    def subject_tensors(self):
+        """Per-subject parameter tables (latents first), for optimizer groups and DDP synchronization checks."""
+        names = ['latents'] + (['transforms'] if self.transform_mode == 'legacy' else
+                               ['transform_rotation', 'transform_translation'] +
+                               (['transform_log_scale', 'transform_shear'] if self.transform_type == 'affine' else []))
+        return {name: getattr(self, name) for name in names}
+
+    def transform_tables(self):
+        """Effective normalized-mode tables (mean removed when mean_identity)."""
+        tables = {k: v for k, v in self.subject_tensors().items() if k.startswith('transform_')}
+        if self.mean_identity:
+            tables = {k: v - v.mean(0, keepdim=True) for k, v in tables.items()}
+        return tables
+
+    def transform_coords(self, coords, subject_indices):
+        """Subject-normalized coordinates -> template-normalized coordinates."""
+        if self.transform_mode == 'legacy':
+            return rigid_transform(coords, self.transforms[subject_indices], self.half_bbox)
+        t = self.transform_tables()
+        a = linear_part(t['transform_rotation'], t.get('transform_log_scale'), t.get('transform_shear'))[subject_indices]
+        return torch.einsum('nij,nj->ni', a, coords * self.half_bbox) / self.half_bbox + t['transform_translation'][subject_indices]
+
+    def maps_mm(self):
+        """Per-subject maps in mm: template_mm = A @ (world - image_centre) + t_mm. Returns (A (N,3,3), t (N,3))."""
+        with torch.no_grad():
+            if self.transform_mode == 'legacy':
+                return euler_rotation(self.transforms[:, :3]), self.transforms[:, 3:].clone()
+            t = self.transform_tables()
+            a = linear_part(t['transform_rotation'], t.get('transform_log_scale'), t.get('transform_shear'))
+            return a, t['transform_translation'] * self.half_bbox
 
     def forward(self, coords, subject_indices, conditions, latent_override=None, apply_transform=True, balance_count=None,
                 return_fields=False):
@@ -57,7 +121,7 @@ class SDFModel(nn.Module):
         if subject_indices.shape!=(len(coords),):
             raise ValueError('Expected one subject index per point')
         if self.model_config['rigid'] and apply_transform and latent_override is None:
-            coords = rigid_transform(coords,self.transforms[subject_indices],self.half_bbox)
+            coords = self.transform_coords(coords,subject_indices)
         if latent_override is not None:
             grids = self.modulator(latent_override)
             if grids.shape[0] != 1:
@@ -65,7 +129,7 @@ class SDFModel(nn.Module):
             mod = F.grid_sample(grids,coords[:,[2,1,0]].reshape(1,1,1,-1,3),align_corners=True,padding_mode='border').reshape(grids.shape[1],-1).T
         else:
             subjects, inverse = torch.unique(subject_indices,sorted=True,return_inverse=True)
-            grids = self.modulator(self.latents[subjects])
+            grids = self.modulator(self.latents[subjects] * self.latent_gate)
             mod = coords.new_zeros((len(coords),self.latents.shape[1]))
             for j in range(len(subjects)):
                 selected = torch.where(inverse==j)[0]

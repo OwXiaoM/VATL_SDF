@@ -17,7 +17,9 @@ import yaml
 from .config import load_config
 from .dataset import SDFGraphDataset, collate_subjects
 from .model import SDFModel
-from .losses import sdf_losses, add_graph_losses, eikonal_loss, field_losses
+from .losses import sdf_losses, add_graph_losses, eikonal_loss, field_losses, alignment_losses, affine_regularization
+from .dataset import vessel_centroids, alignment_enabled
+from .alignment_metrics import transform_statistics
 from .config import field_names, graph_terms
 from .inference import generate_atlas
 from .splits import check_resume_subjects
@@ -70,8 +72,8 @@ def train(config):
     if checkpoint:
         check_resume_subjects(checkpoint, frame)
         if checkpoint['world_size']!=world:raise ValueError('Exact resume requires the same world size')
-        for section in ('data','sampling','model','loss','optimizer','sdf','seed'):
-            if checkpoint['config'][section]!=config[section]:raise ValueError(f'Resume config changed immutable section {section}')
+        for section in ('data','sampling','model','loss','optimizer','sdf','seed','alignment'):
+            if checkpoint['config'].get(section)!=config.get(section):raise ValueError(f'Resume config changed immutable section {section}')
         if checkpoint['metadata']!=frame.to_dict(orient='records'):raise ValueError('Resume metadata or subject order changed')
     directory=None
     if rank==0:
@@ -88,12 +90,11 @@ def train(config):
         objects=[directory];dist.broadcast_object_list(objects,src=0);directory=objects[0]
     model=SDFModel(config,len(data)).to(device)
     if checkpoint:model.load_state_dict(checkpoint['model'])
-    base_params=[p for name,p in model.named_parameters() if name not in ('latents','transforms')]
-    groups=[{'params':base_params,'lr':config['optimizer']['lr_model']},
-            {'params':[model.latents],'lr':config['optimizer']['lr_latent']}]
-    if model.transforms.requires_grad:groups.append({'params':[model.transforms],'lr':config['optimizer']['lr_transform']})
-    optimizer=torch.optim.Adam(groups,weight_decay=config['optimizer']['weight_decay'])
-    scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=config['optimizer']['scheduler_epochs'],eta_min=config['optimizer']['eta_min'])
+    else:initialize_subject_parameters(model,frame,config)
+    optimizer=torch.optim.Adam(parameter_groups(model,config),weight_decay=config['optimizer']['weight_decay'])
+    horizon=scheduler_horizon(config,len(data),world)
+    if rank==0:print(f'Scheduler horizon (epochs): {horizon}',flush=True)
+    scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=horizon,eta_min=config['optimizer']['eta_min'])
     if checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer']);scheduler.load_state_dict(checkpoint['scheduler'])
         restore_rng(checkpoint['rng_states'][rank],device)
@@ -114,8 +115,13 @@ def train(config):
         return directory
     terms=graph_terms(config);eikonal=bool(config.get('graph')) and config['graph']['eikonal']['enabled'];fields_on=bool(field_names(config))
     if rank==0:print(f'Output: {directory}; subjects={len(data)}; world_size={world}; device={device}; graph_terms={terms}; eikonal={eikonal}',flush=True)
+    aligning=alignment_enabled(config)
     for epoch in range(position['epoch'],config['training']['epochs']):
         data.epoch=epoch
+        # Alignment stage: latents gated to zero (one shared template), alignment loss only.
+        stage=aligning and epoch<config['alignment']['epochs']
+        model.latent_gate=0.0 if stage else 1.0
+        active=[] if stage else terms
         generator=torch.Generator().manual_seed(config['seed']+epoch)
         sampler=DistributedSampler(data,num_replicas=world,rank=rank,shuffle=True,seed=config['seed'],drop_last=False) if world>1 else RandomSampler(data,generator=generator)
         if world>1:sampler.set_epoch(epoch)
@@ -139,30 +145,46 @@ def train(config):
             ids=indices.repeat_interleave(p);cond=conditions.repeat_interleave(p,dim=0)
             perm=torch.randperm(len(coords),generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank)).to(device)
             arrays=(coords[perm],targets[perm],ids[perm],cond[perm])
-            if fields_on:arrays+=tuple(batch[k].reshape(-1,batch[k].shape[-1]).to(device)[perm] for k in ('field_target','field_weight'))
+            extra=[k for k in ('field_target','field_weight','align_target','align_weight') if k in batch]
+            arrays+=tuple(batch[k].reshape(-1,batch[k].shape[-1]).to(device)[perm] for k in extra)
             steps=math.ceil(len(coords)/config['training']['task_points_per_step'])
             # Extra graph points per enabled term, shuffled independently and split over the same steps.
             graph_arrays={}
-            for t,term in enumerate(terms):
+            for t,term in enumerate(active):
                 gp=batch[f'{term}_coords'].shape[1]
                 gperm=torch.randperm(b*gp,generator=torch.Generator().manual_seed(config['seed']+epoch*100000+batch_index*100+rank+(t+1)*7919)).to(device)
                 graph_arrays[term]=tuple(x.to(device)[gperm] for x in (batch[f'{term}_coords'].reshape(-1,3),batch[f'{term}_target_mm'].reshape(-1,1),
                                          batch[f'{term}_weight'].reshape(-1,1),indices.repeat_interleave(gp),conditions.repeat_interleave(gp,dim=0)))
             for inner in range(steps):
                 if epoch==position['epoch'] and batch_index==position['batch'] and inner<position['inner']:continue
-                sc,st,si,sv,*field_slices=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
-                pieces={term:tuple(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in graph_arrays[term]) for term in terms}
+                sc,st,si,sv,*extra_slices=(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in arrays)
+                ex=dict(zip(extra,extra_slices))
+                pieces={term:tuple(x[inner*len(x)//steps:(inner+1)*len(x)//steps] for x in graph_arrays[term]) for term in active}
                 if eikonal:sc=sc.detach().requires_grad_(True)
                 optimizer.zero_grad(set_to_none=True)
-                all_coords=torch.cat([sc]+[pieces[t][0] for t in terms]);all_ids=torch.cat([si]+[pieces[t][3] for t in terms])
-                all_cond=torch.cat([sv]+[pieces[t][4] for t in terms])
-                if fields_on:output,moe,fields=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None,return_fields=True)
-                else:output,moe=network(all_coords,all_ids,all_cond,balance_count=len(sc) if terms else None)
-                outputs=output.split([len(sc)]+[len(pieces[t][0]) for t in terms])
-                parts=sdf_losses(outputs[0],st,moe,model.transforms[indices] if model.transforms.requires_grad else None,config)
-                if terms:parts=add_graph_losses(parts,[(o,pieces[t][1],pieces[t][2]) for o,t in zip(outputs[1:],terms)],terms,config)
-                if fields_on:parts=field_losses(parts,{k:v[:len(sc)] for k,v in fields.items()},field_slices[0],field_slices[1],config)
-                if eikonal:
+                all_coords=torch.cat([sc]+[pieces[t][0] for t in active]);all_ids=torch.cat([si]+[pieces[t][3] for t in active])
+                all_cond=torch.cat([sv]+[pieces[t][4] for t in active])
+                if fields_on or aligning:output,moe,fields=network(all_coords,all_ids,all_cond,balance_count=len(sc) if active else None,return_fields=True)
+                else:output,moe=network(all_coords,all_ids,all_cond,balance_count=len(sc) if active else None)
+                outputs=output.split([len(sc)]+[len(pieces[t][0]) for t in active])
+                legacy_tf=model.transforms is not None and model.transforms.requires_grad
+                if stage:
+                    parts=alignment_losses(outputs[0],st,fields['align_distance'][:len(sc)],ex['align_target'],ex['align_weight'],moe,config)
+                else:
+                    parts=sdf_losses(outputs[0],st,moe,model.transforms[indices] if legacy_tf else None,config)
+                    if active:parts=add_graph_losses(parts,[(o,pieces[t][1],pieces[t][2]) for o,t in zip(outputs[1:],active)],active,config)
+                    if fields_on:parts=field_losses(parts,{k:v[:len(sc)] for k,v in fields.items() if k!='align_distance'},ex['field_target'],ex['field_weight'],config)
+                    if aligning:
+                        # Refinement stage: L2 prior on the squared latent norm of the batch subjects.
+                        prior=model.latents[indices].flatten(1).square().sum(1).mean()
+                        parts['latent_prior_raw']=prior;parts['latent_prior_weighted']=config['alignment']['latent_prior_weight']*prior
+                        parts['total']=parts['total']+parts['latent_prior_weighted']
+                regularization=affine_regularization(model)
+                if regularization is not None:
+                    parts['affine_reg_raw']=regularization
+                    parts['affine_reg_weighted']=config['model']['transform'].get('affine_reg_weight',0.)*regularization
+                    parts['total']=parts['total']+parts['affine_reg_weighted']
+                if eikonal and not stage:
                     band=st.abs().reshape(-1)<=config['graph']['eikonal']['band_mm']
                     eik=eikonal_loss(outputs[0],sc,model.half_bbox,config['sdf']['truncation_mm'],band)
                     parts['eikonal_raw']=eik;parts['eikonal_weighted']=config['graph']['eikonal']['weight']*eik
@@ -173,7 +195,7 @@ def train(config):
                 if world>1:dist.all_reduce(values);values/=world
                 if rank==0:
                     report={'epoch':epoch,'batch':batch_index,'inner':inner,'step':step,'time':time.time(),
-                        'sdf_points_per_rank':len(sc),**{f'{t}_points_per_rank':len(pieces[t][0]) for t in terms},
+                        'stage':'align' if stage else 'main','sdf_points_per_rank':len(sc),**{f'{t}_points_per_rank':len(pieces[t][0]) for t in active},
                         **dict(zip(parts,values.cpu().tolist()))}
                     with (Path(directory)/'losses.jsonl').open('a') as stream:stream.write(json.dumps(report)+'\n')
                     if step%10==0 or step==1:print(json.dumps(report),flush=True)
@@ -183,6 +205,7 @@ def train(config):
                     return directory
         scheduler.step()
         position={'epoch':epoch+1,'batch':0,'inner':0}
+        if rank==0:log_subject_parameters(directory,model,epoch,step,stage)
         final=epoch==config['training']['epochs']-1 or (config['training']['stop_after_epoch'] is not None and epoch>=config['training']['stop_after_epoch'])
         if (epoch+1)%config['training']['checkpoint_every']==0 or final:
             save_checkpoint(directory,model,optimizer,scheduler,config,frame,position,step,rank,world)
@@ -196,10 +219,59 @@ def train(config):
     return directory
 
 
+def initialize_subject_parameters(model,frame,config):
+    """Fresh start only. Alignment stage: latents start at zero. centroid_init: translation_i = mean(c) - c_i
+    (normalized units), so every subject's vessel centroid maps to the population mean centroid."""
+    t=config['model'].get('transform',{})
+    with torch.no_grad():
+        if alignment_enabled(config):model.latents.zero_()
+        if t.get('centroid_init'):
+            centroids=torch.as_tensor(vessel_centroids(frame,config),device=model.latents.device)
+            model.transform_translation.copy_(centroids.mean(0,keepdim=True)-centroids)
+
+
+def parameter_groups(model,config):
+    """Backbone/heads, latents and transform tables in separate Adam groups (own learning rates)."""
+    o=config['optimizer'];tables=model.subject_tensors()
+    groups=[{'params':[p for name,p in model.named_parameters() if name not in tables],'lr':o['lr_model']},
+            {'params':[model.latents],'lr':o['lr_latent']}]
+    lr={'transforms':o['lr_transform'],'transform_rotation':o.get('lr_rotation'),'transform_translation':o.get('lr_translation'),
+        'transform_log_scale':o.get('lr_scale'),'transform_shear':o.get('lr_scale')}
+    for name,value in tables.items():
+        if name!='latents' and value.requires_grad:groups.append({'params':[value],'lr':lr[name],'name':name})
+    return groups
+
+
+def scheduler_horizon(config,subjects,world):
+    """Cosine horizon in epochs: the configured integer, or 'run' = the number of epochs this run will train
+    (epochs, stop_after_epoch + 1 and max_steps, whichever ends first). A resumed run keeps the horizon stored in
+    its scheduler state, so extending stop_after_epoch in a continuation does not stretch the schedule."""
+    horizon=config['optimizer']['scheduler_epochs']
+    if horizon!='run':return horizon
+    t=config['training'];per_rank=math.ceil(subjects/world);spr=t['subjects_per_rank']
+    batches=math.ceil(per_rank/spr)
+    sizes=[spr]*(batches-1)+[per_rank-spr*(batches-1)]
+    steps=sum(math.ceil(b*config['sampling']['sdf']['points']/t['task_points_per_step']) for b in sizes)
+    epochs=[t['epochs']]
+    if t['stop_after_epoch'] is not None:epochs.append(t['stop_after_epoch']+1)
+    if t['max_steps'] is not None:epochs.append(math.ceil(t['max_steps']/steps))
+    return max(1,min(epochs))
+
+
+def log_subject_parameters(directory,model,epoch,step,stage):
+    """Per-epoch transform and latent statistics (transforms.jsonl)."""
+    a,t=model.maps_mm()
+    norms=model.latents.detach().flatten(1).norm(dim=1)
+    record={'epoch':epoch,'step':step,'stage':'align' if stage else 'main',
+            **transform_statistics(a.cpu().numpy(),t.cpu().numpy()),
+            'latent_norm':{'median':norms.median().item(),'p95':norms.quantile(.95).item(),'max':norms.max().item()}}
+    with (Path(directory)/'transforms.jsonl').open('a') as stream:stream.write(json.dumps(record)+'\n')
+
+
 def verify_synchronization(model,rank,world):
     # Full tables (not scalar checksums) compared once at shutdown.
     difference=[]
-    for value in (model.latents.detach(),model.transforms.detach()):
+    for value in (v.detach() for v in model.subject_tensors().values()):
         reference=value.clone();dist.broadcast(reference,src=0)
         difference.append((reference-value).abs().max())
     error=torch.stack(difference).max();dist.all_reduce(error,op=dist.ReduceOp.MAX)

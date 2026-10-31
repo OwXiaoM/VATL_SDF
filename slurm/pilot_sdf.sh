@@ -8,7 +8,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
 # Screening pilot: single GPU, first N training subjects (YAML order), fixed step count and seed,
-# then fitting diagnostics (native grid, reference-relative connectivity, centreline by radius, 1 mm atlas).
+# then fitting diagnostics (native grid, reference-relative connectivity, centreline by radius, 1 mm atlas)
+# and alignment diagnostics (transform statistics, large-vessel recurrence).
 # Usage: sbatch slurm/pilot_sdf.sh CONFIG OUT_DIR SUBJECTS STEPS [--set extra overrides]
 set -euo pipefail
 CONFIG=${1:?config}; OUT=${2:?new output dir}; SUBJECTS=${3:?subjects}; STEPS=${4:?steps}
@@ -23,4 +24,5 @@ RUN=$(ls -d "$OUT"/runs/*/ | head -1)
 CKPT=$(ls "$RUN"/checkpoint_step_*.pt | sort | tail -1)
 python -m analysis.phase0_graph.diagnose_checkpoint --checkpoint "$CKPT" --output "$OUT/diagnostics" \
   --factors 1 --atlas-spacings 1
+python -m analysis.alignment.evaluate_alignment --checkpoint "$CKPT" --output "$OUT/alignment" --max-subjects "$SUBJECTS" --workers 8
 echo PILOT_OK

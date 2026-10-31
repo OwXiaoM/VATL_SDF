@@ -92,3 +92,26 @@ def eikonal_loss(sdf_normalized, coords, half_bbox_mm, truncation_mm, band=None)
     if band is None:
         return residual.mean()
     return (residual * band).sum() / band.sum().clamp_min(1)
+
+
+def alignment_losses(output, sdf_target_mm, align_prediction, align_target_mm, align_weight, moe, config):
+    """Alignment stage (latents gated to zero, so all subjects decode one template):
+    sdf_weight * L1 of the SDF clamped at the WIDER alignment truncation (still divided by sdf.truncation_mm, so
+    the head keeps its units) + large_vessel_weight * L1 of the large-vessel centreline distance + MoE balance."""
+    a, tau = config['alignment'], config['sdf']['truncation_mm']
+    limit = a['sdf_truncation_mm']
+    sdf = (output[:, 0] - sdf_target_mm.reshape(-1).clamp(-limit, limit) / tau).abs().mean()
+    vessel = weighted_mean((align_prediction - align_target_mm / tau).abs(), align_weight)
+    parts = {'align_sdf_raw': sdf, 'align_vessel_raw': vessel, 'moe_raw': moe,
+             'align_sdf_weighted': a['sdf_weight'] * sdf, 'align_vessel_weighted': a['large_vessel_weight'] * vessel,
+             'moe_weighted': config['loss']['moe_weight'] * moe}
+    parts['total'] = parts['align_sdf_weighted'] + parts['align_vessel_weighted'] + parts['moe_weighted']
+    return parts
+
+
+def affine_regularization(model):
+    """Mean squared effective log-scale and shear over all subjects (0 for rigid / legacy transforms)."""
+    if getattr(model, 'transform_type', 'rigid') != 'affine' or model.transform_mode == 'legacy':
+        return None
+    t = model.transform_tables()
+    return t['transform_log_scale'].square().mean() + t['transform_shear'].square().mean()

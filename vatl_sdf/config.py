@@ -47,8 +47,11 @@ def validate(c):
     for key in ('subjects_per_rank', 'task_points_per_step', 'epochs', 'checkpoint_every'):
         if c['training'][key] <= 0:
             raise ValueError(f'Invalid training.{key}')
-    if c['training']['atlas_every'] < 0 or c['optimizer']['scheduler_epochs'] <= 0:
-        raise ValueError('Invalid atlas period or scheduler horizon')
+    horizon = c['optimizer']['scheduler_epochs']
+    if c['training']['atlas_every'] < 0 or not (horizon == 'run' or (isinstance(horizon, int) and horizon > 0)):
+        raise ValueError("Invalid atlas period or scheduler horizon (positive int or 'run')")
+    validate_transform(c)
+    validate_alignment(c)
     validate_graph(c.get('graph', {}))
     fields = c.get('graph_fields', {})
     for name in field_names(c, enabled_only=False):
@@ -56,6 +59,43 @@ def validate(c):
             raise ValueError(f'Invalid graph_fields.{name}')
     if fields and min(fields['band_mm'], fields['junction_sigma_mm'], fields['short_loop_mm'], fields['exclusion_mm']) <= 0:
         raise ValueError('Invalid graph_fields geometry settings')
+
+
+def validate_transform(c):
+    t = c['model'].get('transform', {})
+    if not t:
+        return
+    if t.get('mode', 'legacy') not in ('legacy', 'normalized') or t.get('type', 'rigid') not in ('rigid', 'affine'):
+        raise ValueError('model.transform.mode must be legacy|normalized and type rigid|affine')
+    if t.get('mode', 'legacy') == 'legacy':
+        if t.get('type', 'rigid') != 'rigid' or t.get('mean_identity') or t.get('centroid_init'):
+            raise ValueError('legacy transforms are rigid, without mean_identity or centroid_init')
+        return
+    for key in ('lr_rotation', 'lr_translation') + (('lr_scale',) if t['type'] == 'affine' else ()):
+        if not c['optimizer'].get(key, 0) > 0:
+            raise ValueError(f'normalized transforms need optimizer.{key} > 0')
+    if c['loss']['tf_weight'] != 0:
+        raise ValueError('loss.tf_weight applies to legacy transforms only; use model.transform.affine_reg_weight')
+    if t.get('affine_reg_weight', 0) < 0:
+        raise ValueError('affine_reg_weight must be nonnegative')
+
+
+def validate_alignment(c):
+    a = c.get('alignment', {})
+    if not a or not a.get('enabled'):
+        return
+    if not field_names(c) and not c.get('graph_fields'):
+        raise ValueError('alignment needs the graph_fields section (centreline construction settings)')
+    if not c.get('graph'):
+        raise ValueError('alignment needs the graph section (mask support)')
+    if not (isinstance(a['epochs'], int) and a['epochs'] > 0):
+        raise ValueError('alignment.epochs must be a positive integer')
+    for key in ('sdf_truncation_mm', 'large_vessel_min_radius_mm'):
+        if not a[key] > 0:
+            raise ValueError(f'alignment.{key} must be positive')
+    for key in ('sdf_weight', 'large_vessel_weight', 'latent_prior_weight'):
+        if not a[key] >= 0:
+            raise ValueError(f'alignment.{key} must be nonnegative')
 
 
 GRAPH_POINT_TERMS = ('centerline_sdf', 'centerline_hinge', 'edge_hinge', 'radius')
