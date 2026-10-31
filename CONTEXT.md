@@ -706,7 +706,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46344 | Phase 2 pilot 02_centerline_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_02_centerline_hinge | 2.03 | COMPLETED; degenerate field |
 | 46345 | Phase 2 pilot 03_edge_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_03_edge_hinge | running | |
 | 46346 | Phase 2 pilot 04_all_graph_terms | 1 L40S | — | 0.02 | CANCELLED by Claude after 1.5 min: union of weight-1.0 terms, uninformative after 01/02 |
-| 46347 | Phase 2 pilot 05_radius_regression | 1 L40S, frozen e06b276, nice 100 | sdf_only/pilots/20261030_p2_05_radius_regression | pending | |
+| 46347 | Phase 2 pilot 05_radius_regression | | | 0 | CANCELLED by Claude before start: weight-1.0 negative-only targets, replaced by 05b |
+| 46530–46533 | Phase 2 pilots 02b/03b/04b/05b (point weight 0.15) | 1 L40S each, frozen 970b2b4 | sdf_only/pilots/20261031_p2_<config> | pending | |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | pending | |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
@@ -746,6 +747,15 @@ reduction early in training. Test: 01b_centerline_sdf_pointweight (weight 0.15
 Pilot 02 (job 46344, 2.0 h): DEGENERATE in the same way (volume ratio 59), consistent
 with the weighting hypothesis. 03 and 04 started anyway once GPUs freed; 04 (union of
 weight-1.0 terms) was cancelled after 1.5 min as uninformative; 03 left to finish.
+Interim (01b at 21k of 40k steps, screening): SDF L1 500-step means 0.192 / 0.134 /
+0.123 / 0.110 / 0.102 / 0.097 at 0 / 2k / 5k / 10k / 15k / 20k steps vs 00: 0.185 /
+0.136 / 0.130 / 0.123 / 0.120 / 0.124 and 01: 0.241 / 0.179 / 0.156 / 0.158 / 0.166 /
+0.177. 03 (weight 1.0) rises after 10k like 01. Weight hypothesis supported (not
+proven: one seed, 100 subjects). The Phase 2 screening set is therefore the
+point-weight variants 01b-05b (configs 02b-05b added; 05 cancelled before start).
+Note: 01b's SDF L1 falls below 00's, so the centreline points may also help the SDF
+fit itself; whether this reflects more points per step (1.15x compute) is not
+separated (hypothesis).
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
