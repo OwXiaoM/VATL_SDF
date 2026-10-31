@@ -703,7 +703,10 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46334 | Phase 2 pilot 00_sdf_baseline (100 subj, 40k steps) + diagnostics | 1 L40S | sdf_only/pilots/20261030_p2_00_sdf_baseline | 1.80 | COMPLETED 1 h 48 min, PILOT_OK |
 | 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | pending | |
 | 46343 | Phase 2 pilot 01_centerline_sdf | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_01_centerline_sdf | 2.03 | COMPLETED, PILOT_OK; degenerate field (see screening) |
-| 46344–46347 | Phase 2 pilots 02–05 | 1 L40S each, frozen e06b276; 03–05 nice 100 | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46344 | Phase 2 pilot 02_centerline_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_02_centerline_hinge | 2.03 | COMPLETED; degenerate field |
+| 46345 | Phase 2 pilot 03_edge_hinge | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_03_edge_hinge | running | |
+| 46346 | Phase 2 pilot 04_all_graph_terms | 1 L40S | — | 0.02 | CANCELLED by Claude after 1.5 min: union of weight-1.0 terms, uninformative after 01/02 |
+| 46347 | Phase 2 pilot 05_radius_regression | 1 L40S, frozen e06b276, nice 100 | sdf_only/pilots/20261030_p2_05_radius_regression | pending | |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | pending | |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
@@ -720,6 +723,7 @@ native grid; reference-relative connectivity). Rows added as pilots finish.
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
 | 00 baseline | 0.184 | 1.73 | 1.39 | 5.40 | -0.33 | 0.08 / 0.24 / 0.47 / 0.75 (ref floor 0.95) | 1658 (0.55) | 0.139 |
 | 01 centerline_sdf (w 1.0) | 0.019 | 3.43 | 96.1 | 0.37 | +0.09 | 0.99 / 1.00 / 1.00 / 1.00 | 941 (1.00), 1.67 M voxels | 0.251 |
+| 02 centerline_hinge (w 1.0) | 0.025 | 3.03 | 58.6 | 1.36 | +0.06 | 0.74 / 0.89 / 0.97 / 0.95 | 4662 (0.99), 1.36 M voxels | 0.262 |
 
 Observation (fact): at pilot scale individual fits are poor (Dice 0.18, 5.4x
 the reference's >=10-voxel components), so pilot comparisons measure early
@@ -739,6 +743,9 @@ reduction early in training. Test: 01b_centerline_sdf_pointweight (weight 0.15
 = per-point weight of an SDF sample, i.e. literally "extra SDF samples"; job
 46468). Pilots 02-05 also use weight 1.0 and the hinges also push only downward;
 03-05 were deprioritized (nice 100) so 01b runs first; 02 was already running.
+Pilot 02 (job 46344, 2.0 h): DEGENERATE in the same way (volume ratio 59), consistent
+with the weighting hypothesis. 03 and 04 started anyway once GPUs freed; 04 (union of
+weight-1.0 terms) was cancelled after 1.5 min as uninformative; 03 left to finish.
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
