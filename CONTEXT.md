@@ -720,7 +720,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46799 | Alignment Step 0 (CPU) | dev, 16 CPU, frozen ce77ff2 | sdf_only/analysis/20261031_alignment_step0 | 0 | COMPLETED 1.5 min |
 | 46800 | Divergence inspection of 00 baseline | 1 L40S | sdf_only/analysis/20261031_divergence_00_baseline | 0.01 | COMPLETED |
-| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | C0 done (2 h 05); A1–A4 running/pending | |
+| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | | C0, A1 done (2 h 05 each); A2–A4 running |
 | 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | COMPLETED |
 | 46808/46811 | CPU smoke of A4 config (+centroid init) on 2 real subjects, 8 steps | dev, 8 CPU | sdf_only/pilots/20261031_al_smoke_cpu{,2} | 0 | 46808 refused (max_subjects needs max_steps); 46811 SMOKE_OK |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
@@ -728,8 +728,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | 0.51 | COMPLETED (0c 703 s, maps 877 s, density 252 s) |
 | 46765 | 0c on baseline step 99600 (epoch 60) | 1 L40S | sdf_only/analysis/20261031_00_baseline_step99600 | 0.21 | COMPLETED |
 | 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | 0.21 | COMPLETED; collapsed field |
-| 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
-| 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | pending | |
+| 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | 16.2 | COMPLETED 5 h 23 (checkpoints to step 99600 = epoch 60); continuation: stop guard, no updates |
+| 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | 15.3 | COMPLETED 5 h 07 (to step 99600); continuation: stop guard, no updates |
+| 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | | submitted |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
@@ -1042,7 +1043,11 @@ subjects, large vessels r >= 1.2 mm, fraction of other subjects within d; identi
 | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | 07a (old 1000-ep horizon) | 0.79 | 0.64 | 2.68 | 0.036 | 3.7k / – | – | 0.1 | – |
 | C0 | 0.929 | 0.52 | 1.41 | 0.022 | 3141 / 0.28 | 1.74 | 0.07 | 0.010/0.051/0.111 |
+| A1 | 0.930 | 0.53 | 1.34 | 0.023 | 3679 / 0.30 | 1.65 | 1.95 | 0.010/0.071/0.162 |
 
 - Fact: run-length horizon alone (C0 vs 07a) raises Dice 0.79 -> 0.93 and lowers the component ratio
   2.7 -> 1.4. Transforms stay near identity (translation 0.07 mm); learned recurrence 0.111 at 3 mm is
   below the centroid-only reference (0.141). Atlas: 95 components, largest 0.28.
+- Fact (A1 vs C0): normalized-unit translations move (median 1.95 mm vs 0.07 mm) with unchanged fits;
+  learned recurrence at 3 mm 0.162 (mean 0.176) vs C0 0.111 and centroid-only 0.141. Gain is modest, not
+  "far above" the references.
