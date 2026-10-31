@@ -731,6 +731,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | 16.2 | COMPLETED 5 h 23 (checkpoints to step 99600 = epoch 60); continuation: stop guard, no updates |
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | 15.3 | COMPLETED 5 h 07 (to step 99600); continuation: stop guard, no updates |
 | 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | 0.8 | COMPLETED (12 min each) |
+| 46841 | FULL A4 (13_a4_full): 497 subj, 36 epochs = 59,760 steps, run horizon, alignment 10 epochs | 3 L40S, frozen 0ac21bc | sdf_only/runs/13_a4_full | | running (submitted 2026-10-31 21:46) |
+| 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | | submitted |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
@@ -1097,3 +1099,50 @@ Medians of the same 6 training subjects as the baseline 0c (x1 grid unless state
   0.101 (identity) and 0.111 (C0). A4's 0.313 is numerically above 0.25 on the stricter definition.
 - Not tested: combining centroid init with staging; a longer alignment stage (transforms still moving at
   epoch 10); behaviour at full scale.
+
+### User decisions 2026-10-31 (evening): full-scale A4, generalization test, probabilistic atlas
+
+Base recipe A4 with run-length horizon. Full run on all 497 training subjects, seed 42, ~60k steps, alignment stage
+kept at 10 epochs, 3 L40S as the previous full runs; scale-up check (not an ablation). Test-time fitting of the
+first 5 validation IDs (YAML order) with a frozen network (alignment stage, then latent + L2 prior); 0c metrics on
+test and the 6 training diagnostic subjects; recurrence of test subjects against training subjects. Probabilistic
+atlas (occupancy, soft occupancy tau 0.5 mm, large-vessel centreline probability within 1 mm) on the final and
+end-of-alignment checkpoints, with connectivity, calibration (centroid-only control) and coverage. Training
+objective unchanged. No per-job confirmation; update CONTEXT and commit after each sub-step; report at the end.
+
+### Full A4 run (job 46841; config 13_a4_full; frozen 0ac21bc)
+
+- Length: 36 epochs x 1660 steps (3 GPUs, 497 subjects) = 59,760 steps (240 short of 60k so that the run is a whole
+  number of epochs; the scheduler is per epoch). Cosine horizon 'run' = 36 epochs (printed by the job).
+  Alignment stage: epochs 0-9 = 16,600 steps (28% of the run; pilot 25%). Checkpoints at steps 16,600 (end of the
+  alignment stage), 33,200, 49,800 and 59,760 (final).
+- Factors that differ between the compared runs (none is a one-factor comparison):
+
+| | Step 2 A4 pilot | full A4 (this) | full 07a | full baseline 00 |
+| --- | --- | --- | --- | --- |
+| subjects / GPUs / subjects per step | 100 / 1 / 5 | 497 / 3 / 15 | 497 / 3 / 15 | 497 / 3 / 15 |
+| steps (epochs) | 40k (40) | 59,760 (36) | 99,600 (60, stopped) | 332k (200) |
+| per-subject updates (50 per epoch) | 2000 | 1800 | 3000 | 10,000 |
+| cosine horizon | run (40 ep) | run (36 ep) | 1000 epochs | 1000 epochs |
+| graph term / field head | centreline SDF 0.15 / centreline distance | same | same | none / none |
+| transforms | normalized affine, mean identity | same | legacy rigid | legacy rigid |
+| staged alignment + latent prior | yes (10 ep) | yes (10 ep) | no | no |
+
+### Test-time fitting and evaluation code (commit a8b603c; tests/test_generalization.py; 82 tests pass)
+
+- vatl_sdf/test_time_fit.py: trained network frozen (checked after fitting); fresh per-subject tables (latent 0,
+  identity transform); alignment stage (latent gated to zero, alignment loss) then refinement with the training
+  loss (SDF + centreline-SDF graph term + centreline-distance head + L2 latent prior + affine regularization).
+  Budget mirrors training per subject: 50 steps per epoch on a fresh 250k-point sample, default 10 + 26 epochs
+  (1800 updates), training learning rates, per-epoch cosine with the checkpoint's horizon. The mean-identity
+  gauge is NOT applied to new subjects (template frame fixed by training).
+- analysis/generalization/evaluate_generalization.py: test = first N YAML val IDs (checked against the manifest and
+  the training IDs); groups test / train_refit (6 diagnostic training subjects refitted by the same procedure:
+  separates generalization from fitting budget) / train (trained latents); 0c metrics at chosen test-time
+  epochs; large-vessel recurrence of each group against the 497 training subjects (trained transforms), with a
+  centroid-only control; fitted transforms saved (fitted_test.pt).
+- vatl_sdf/probabilistic_atlas.py: `shard` (GPU partial sums of 1[SDF<0] and sigmoid(-SDF/tau) over training
+  subjects, uniform weights, template grid 1 mm) and `merge` (CPU: maps, centreline probability, connectivity at
+  0.1/0.25/0.5, held-out Brier / Brier skill / smoothed log-likelihood / reliability / ECE over the subject FOV
+  and over a vessel ROI, coverage of held-out large-vessel centrelines; learned vs centroid-only frame).
+- analysis/divergence/inspect_run.py now reads normalized/affine transforms through maps_mm.
