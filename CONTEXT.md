@@ -712,7 +712,10 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46532 | Phase 2 pilot 04b_all_graph_terms_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_04b_all_graph_terms_pointweight | 2.51 | COMPLETED; partial inflation |
 | 46533 | Phase 2 pilot 05b_radius_regression_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_05b_radius_regression_pointweight | 2.04 | COMPLETED |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | 2.04 | COMPLETED, PILOT_OK |
-| 46632–46635 | Phase 4 pilots 07a–07d (one field head each on top of 01b; 100 subj, 40k steps) | 1 L40S each, frozen e7fe991 | sdf_only/pilots/20261031_p4_<config> | pending | |
+| 46632–46634 | Phase 4 pilots 07a/07b/07c | 1 L40S each, frozen e7fe991 | sdf_only/pilots/20261031_p4_<config> | 2.06 each | COMPLETED |
+| 46635 | Phase 4 pilot 07d junction | 1 L40S, frozen e7fe991 | sdf_only/pilots/20261031_p4_07d_field_junction | running | |
+| 46700 | FULL 07a_field_centerline_distance (afterany:46342) | 3 L40S, 24 h, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | pending | |
+| 46701 | continuation of 46700 | 3 L40S, frozen e7fe991 | same | pending | |
 | 46636 | FULL 01b_centerline_sdf_pointweight, 497 subj, 200 epochs (part 1; afterany:46342) | 3 L40S, 24 h, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
@@ -821,6 +824,31 @@ Next: full 01b run (3 L40S, same schedule as 00) for confirmation (jobs 46636/46
 Phase 4 field heads screened on top of 01b, one head per pilot (07a-07d, jobs
 46632-46635; control = 01b pilot). Field heads are supervised at the SDF samples
 and are separate heads, so they cannot shift the SDF directly (by construction).
+
+#### Phase 4 field-head screening (2026-10-31; screening evidence; control = 01b pilot)
+
+`python -m analysis.phase2.summarize_pilots --tag _p4_` (TSV sdf_only/pilots/p4_summary.tsv).
+
+| Pilot | Dice | band MAE mm | vol ratio | comp ratio >=10 (all) | largest diff | inside floor / 0.9-1.2 / 1.2-1.6 / >=1.6 | atlas 1 mm comps (largest), voxels | SDF L1 last 2k |
+| --- | ---: | ---: | ---: | --- | ---: | --- | --- | ---: |
+| 01b control | 0.369 | 1.38 | 0.95 | 5.78 (15.4) | -0.38 | 0.14 / 0.45 / 0.85 / 1.00 | 847 (0.15), 14.9 k | 0.086 |
+| 07a centerline_distance | 0.793 | 0.64 | 0.95 | 2.68 (2.0) | -0.23 | 0.77 / 0.98 / 1.00 / 1.00 | 95 (0.23), 3.7 k | 0.036 |
+| 07b radius | 0.219 | 1.61 | 1.64 | 8.78 (26.0) | -0.59 | 0.09 / 0.28 / 0.60 / 0.95 | 1585 (0.35), 21.8 k | 0.110 |
+| 07c tangent | 0.530 | 1.15 | 0.83 | 3.43 (6.9) | -0.37 | 0.26 / 0.74 / 0.99 / 1.00 | 392 (0.23), 8.9 k | 0.070 |
+
+Facts: 07a improves every individual-fit metric by a large margin over 01b (Dice
+0.37 -> 0.79, band MAE 1.38 -> 0.64 mm, >= 10-voxel component ratio 5.8 -> 2.7,
+all-size ratio 15.4 -> 2.0, floor-radius centreline inside 0.14 -> 0.77, training
+SDF L1 0.086 -> 0.036); 07c improves moderately; 07b is worse than 01b. Checks: no
+code difference under vatl_sdf/ between the 01b and 07 frozen trees; the diagnostics
+evaluate the SDF head (forward without return_fields). Optimizer is Adam
+(loss-scale invariant), so a larger effective loss weight alone is an unlikely
+explanation (hypothesis). Proposed mechanism (hypothesis): the distance target is
+0 exactly on the centreline and smooth around it, giving the shared backbone a
+location signal for one-voxel vessels whose SDF is only barely negative. The 1 mm
+mean-latent atlas becomes much smaller (3.7 k voxels): better individual fits did
+not give a fuller atlas (a Case 2 pattern at pilot scale; fact at this scale only).
+Full 07a run queued (one factor vs full 01b).
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
