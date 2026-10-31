@@ -718,7 +718,13 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46701 | continuation of 46700 | 3 L40S, frozen e7fe991 | same | pending | |
 | 46636 | FULL 01b_centerline_sdf_pointweight, 497 subj, 200 epochs (part 1; afterany:46342) | 3 L40S, 24 h, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
-| 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
+| 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
+| 46636/46637, 46700/46701 | full 01b / 07a runs, 200 epochs | | | 0 | CANCELLED before start; replaced with stop_after_epoch=59 (46767–46770) |
+| 46764 | 0c + population maps + centreline density on baseline step 33200 (epoch 20) | 1 L40S, frozen ed1cc9d | sdf_only/analysis/20261031_00_baseline_step33200 | running | |
+| 46765 | 0c on baseline step 99600 (epoch 60) | 1 L40S | sdf_only/analysis/20261031_00_baseline_step99600 | running | |
+| 46766 | 0c on baseline final checkpoint (afterok:46342) | 1 L40S | sdf_only/analysis/20261031_00_baseline_final | pending | |
+| 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
+| 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
@@ -849,6 +855,27 @@ location signal for one-voxel vessels whose SDF is only barely negative. The 1 m
 mean-latent atlas becomes much smaller (3.7 k voxels): better individual fits did
 not give a fuller atlas (a Case 2 pattern at pilot scale; fact at this scale only).
 Full 07a run queued (one factor vs full 01b).
+07d junction (job 46635): worse than 01b (Dice 0.14, >= 10-voxel ratio 11.5, volume
+2.25, atlas 37.9 k voxels). Ranking of heads at pilot scale: distance >> tangent >
+control > radius, junction.
+
+#### Full baseline divergence (fact; 2026-10-31)
+
+00_sdf_baseline_full SDF L1 (2k-step means): 0.160 (step 0), 0.112 (20k, epoch 12),
+0.111 (30k), then slowly rising: 0.115 (100k, epoch 60), 0.128 (160k), 0.134 (170k);
+a MoE balance-loss spike 0.036 -> 0.14 -> 0.18 at steps 180k-200k (epochs 108-120)
+with SDF L1 jumping to 0.22, then 0.265 from epoch ~150 to the end (epoch 191 at
+12:48). The rigid-transform penalty grows monotonically (0.0003 -> 0.0047). The
+final checkpoint is therefore a degraded model. Pilot 00 shows the same slow rise
+after 10k steps. Learning rate stays near 1e-4 because the cosine horizon is 1000
+epochs while training stops at 199 (fact from config). Causes (hypotheses, not
+tested): too-high constant LR for the late phase, MoE routing collapse, drifting
+latents/transforms. Consequences:
+- 0c is run on epoch 20 (step 33200, near the loss minimum), epoch 60 (99600) and
+  the final checkpoint; population maps and centreline density on epoch 20.
+- Full 01b and 07a runs are stopped at epoch 59 (all compared at epochs 20/60).
+- Stabilizing training (e.g. scheduler horizon = run length, or lower LR) is a
+  candidate one-factor ablation for the user to decide; not run.
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
