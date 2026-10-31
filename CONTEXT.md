@@ -708,7 +708,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46346 | Phase 2 pilot 04_all_graph_terms | 1 L40S | — | 0.02 | CANCELLED by Claude after 1.5 min: union of weight-1.0 terms, uninformative after 01/02 |
 | 46347 | Phase 2 pilot 05_radius_regression | | | 0 | CANCELLED by Claude before start: weight-1.0 negative-only targets, replaced by 05b |
 | 46530 | Phase 2 pilot 02b_centerline_hinge_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_02b_centerline_hinge_pointweight | 2.03 | COMPLETED |
-| 46531–46533 | Phase 2 pilots 03b/04b/05b (point weight 0.15) | 1 L40S each, frozen 970b2b4 | sdf_only/pilots/20261031_p2_<config> | running | |
+| 46531 | Phase 2 pilot 03b_edge_hinge_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_03b_edge_hinge_pointweight | 2.03 | COMPLETED |
+| 46532–46533 | Phase 2 pilots 04b/05b (point weight 0.15) | 1 L40S each, frozen 970b2b4 | sdf_only/pilots/20261031_p2_<config> | running | |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | 2.04 | COMPLETED, PILOT_OK |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
@@ -729,6 +730,7 @@ native grid; reference-relative connectivity). Rows added as pilots finish.
 | 03 edge_hinge (w 1.0) | 0.023 | 3.08 | 77.9 | 1.23 | +0.04 | 0.78 / 0.92 / 0.94 / 0.98 | 2545 (1.00), 1.43 M voxels | 0.250 |
 | 01b centerline_sdf (w 0.15) | 0.369 | 1.38 | 0.95 | 5.78 | -0.38 | 0.14 / 0.45 / 0.85 / 1.00 | 847 (0.15), 14.9 k voxels | 0.086 |
 | 02b centerline_hinge (w 0.15) | 0.338 | 1.43 | 0.87 | 3.47 | -0.50 | 0.10 / 0.37 / 0.74 / 1.00 | 882 (0.46), 16.0 k voxels | 0.094 |
+| 03b edge_hinge (w 0.15) | 0.177 | 1.63 | 1.69 | 9.66 | -0.58 | 0.09 / 0.21 / 0.42 / 0.85 | 1724 (0.61), 29.4 k voxels | 0.111 |
 
 Observation (fact): at pilot scale individual fits are poor (Dice 0.18, 5.4x
 the reference's >=10-voxel components), so pilot comparisons measure early
@@ -775,6 +777,12 @@ from the reference (Dice 0.37). 03 (weight 1.0) collapsed like 01/02.
 00), but the largest piece is relatively smaller (difference -0.50 vs -0.33) and the
 volume is lower (0.87); centreline inside fractions between 00 and 01b. Mixed:
 fewer mid-size fragments without a larger main component (fact); no ranking yet.
+03b (job 46531): no improvement over 00 on individual fits (Dice 0.18, centreline
+inside fractions at baseline level), more >= 10-voxel pieces (ratio 9.66) and a
+relatively smaller largest piece (-0.58); volume up (1.69); SDF L1 lower (0.111).
+The 1 mm atlas is slightly larger and more connected (largest 0.61 vs 0.55), but
+atlas metrics at this scale are one decoding (fact). Edge hinge: not promising at
+pilot scale.
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
