@@ -720,7 +720,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46799 | Alignment Step 0 (CPU) | dev, 16 CPU, frozen ce77ff2 | sdf_only/analysis/20261031_alignment_step0 | 0 | COMPLETED 1.5 min |
 | 46800 | Divergence inspection of 00 baseline | 1 L40S | sdf_only/analysis/20261031_divergence_00_baseline | 0.01 | COMPLETED |
-| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | running/pending | |
+| 46802–46806 | Alignment pilots C0, A1–A4 | 1 L40S each, frozen b6ac683 | sdf_only/pilots/20261031_al_<config> | C0 done (2 h 05); A1–A4 running/pending | |
 | 46807 | Recurrence of baseline epoch-20 learned transforms (CPU) | dev, 8 CPU | sdf_only/analysis/20261031_alignment_baseline_ep20_{first100,all} | 0 | COMPLETED |
 | 46808/46811 | CPU smoke of A4 config (+centroid init) on 2 real subjects, 8 steps | dev, 8 CPU | sdf_only/pilots/20261031_al_smoke_cpu{,2} | 0 | 46808 refused (max_subjects needs max_steps); 46811 SMOKE_OK |
 | 46389 | post-baseline on final checkpoint | | | 0 | CANCELLED by Claude before start: final checkpoint degraded (see divergence); replaced by 46764–46766 |
@@ -1034,3 +1034,15 @@ A3/A4 add an L2 latent prior. Weight decay is a further candidate (not run).
 | A2 | 10_a2_centroid_init | A1: centroid initialization |
 | A3 | 11_a3_staged | A1: staged training (10 of 40 epochs alignment stage) |
 | A4 | 12_a4_staged_affine | A3: regularized affine |
+
+Results (screening evidence; fit metrics = medians over the 6 diagnostic subjects; recurrence = first 100
+subjects, large vessels r >= 1.2 mm, fraction of other subjects within d; identity/centroid refs 0.101/0.141 at 3 mm):
+
+| Pilot | Dice | Band MAE mm | Comp ratio >=10 | SDF L1 | Atlas vox / largest | Rot deg med | Transl mm med | Learned rec 1/2/3 mm |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| 07a (old 1000-ep horizon) | 0.79 | 0.64 | 2.68 | 0.036 | 3.7k / – | – | 0.1 | – |
+| C0 | 0.929 | 0.52 | 1.41 | 0.022 | 3141 / 0.28 | 1.74 | 0.07 | 0.010/0.051/0.111 |
+
+- Fact: run-length horizon alone (C0 vs 07a) raises Dice 0.79 -> 0.93 and lowers the component ratio
+  2.7 -> 1.4. Transforms stay near identity (translation 0.07 mm); learned recurrence 0.111 at 3 mm is
+  below the centroid-only reference (0.141). Atlas: 95 components, largest 0.28.
