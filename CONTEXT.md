@@ -712,6 +712,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46532 | Phase 2 pilot 04b_all_graph_terms_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_04b_all_graph_terms_pointweight | 2.51 | COMPLETED; partial inflation |
 | 46533 | Phase 2 pilot 05b_radius_regression_pointweight | 1 L40S, frozen 970b2b4 | sdf_only/pilots/20261031_p2_05b_radius_regression_pointweight | 2.04 | COMPLETED |
 | 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | 2.04 | COMPLETED, PILOT_OK |
+| 46632–46635 | Phase 4 pilots 07a–07d (one field head each on top of 01b; 100 subj, 40k steps) | 1 L40S each, frozen e7fe991 | sdf_only/pilots/20261031_p4_<config> | pending | |
+| 46636 | FULL 01b_centerline_sdf_pointweight, 497 subj, 200 epochs (part 1; afterany:46342) | 3 L40S, 24 h, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | pending | |
+| 46637 | continuation of 46636 (afterany) | 3 L40S, frozen e7fe991 | same | pending | |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
@@ -814,8 +817,10 @@ Facts (100 subjects, 40k steps, seed 42, 6 training subjects):
 Selection: 01b is the Phase 2 candidate (default term, best fit, no collapse).
 Caveats: one seed; 6 subjects; 01b adds 15% points per step (compute not matched);
 pilot fits are far from converged (00 Dice 0.18 vs full-run status TBD by 0c).
-Next: full 01b run (3 L40S, same schedule as 00) for confirmation; Phase 4 field
-heads screened on top of 01b, one head per pilot.
+Next: full 01b run (3 L40S, same schedule as 00) for confirmation (jobs 46636/46637);
+Phase 4 field heads screened on top of 01b, one head per pilot (07a-07d, jobs
+46632-46635; control = 01b pilot). Field heads are supervised at the SDF samples
+and are separate heads, so they cannot shift the SDF directly (by construction).
 
 Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
 0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
