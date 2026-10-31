@@ -732,7 +732,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | 15.3 | COMPLETED 5 h 07 (to step 99600); continuation: stop guard, no updates |
 | 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | 0.8 | COMPLETED (12 min each) |
 | 46841 | FULL A4 (13_a4_full): 497 subj, 36 epochs = 59,760 steps, run horizon, alignment 10 epochs | 3 L40S, frozen 0ac21bc | sdf_only/runs/13_a4_full | | running (submitted 2026-10-31 21:46) |
-| 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | | submitted |
+| 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | 0.06 | FAILED 3 min: CUDA OOM, caused by the smoke setting --steps-per-epoch 5 (50k points per subject per step; real setting 50 -> 5k) |
+| 46844 | Same smoke, --steps-per-epoch 50 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot_2 | 0.09 | COMPLETED 5.5 min, SMOKE_OK (shard: 100 subjects at 4 mm in 17 s) |
+| (auto) | Watcher (login-node poller, scratchpad autosubmit.sh, frozen a8b603c): at step 16,600 -> gen_align + 4 shards + merge; at step 59,760 -> gen_final + 4 shards + merge, gen_long, inspect_run (afterany 46841) | | sdf_only/analysis/20261031_a4full_* | | armed |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
