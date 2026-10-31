@@ -50,6 +50,30 @@ def recurrence(clouds, queries_per_subject=300, distances=DISTANCES_MM, seed=0):
     return {d: np.concatenate(v) if v else np.zeros(0) for d, v in out.items()}, (np.concatenate(owner) if owner else np.zeros(0, int))
 
 
+def recurrence_against(queries, references, queries_per_subject=300, distances=DISTANCES_MM, seed=0, exclude=None):
+    """Cross recurrence: for sampled points of each query cloud, the fraction of REFERENCE clouds with a point within
+    d. exclude[i] (optional) = index of a reference cloud to skip for query i (the same subject)."""
+    trees = [cKDTree(c) if len(c) else None for c in references]
+    rng = np.random.default_rng(seed)
+    out = {d: [] for d in distances}
+    for i, cloud in enumerate(queries):
+        if not len(cloud):
+            continue
+        pick = cloud[rng.choice(len(cloud), size=min(queries_per_subject, len(cloud)), replace=False)]
+        hits = {d: np.zeros(len(pick)) for d in distances}
+        others = 0
+        for j, tree in enumerate(trees):
+            if tree is None or (exclude is not None and exclude[i] == j):
+                continue
+            others += 1
+            dist = tree.query(pick, distance_upper_bound=max(distances))[0]
+            for d in distances:
+                hits[d] += dist <= d
+        for d in distances:
+            out[d].append(hits[d] / max(others, 1))
+    return {d: np.concatenate(v) if v else np.zeros(0) for d, v in out.items()}
+
+
 def summarize_recurrence(fractions):
     return {f'{d:g}mm': {'median': float(np.median(v)), 'mean': float(np.mean(v)), 'p25': float(np.percentile(v, 25)),
                          'p75': float(np.percentile(v, 75)), 'queries': int(len(v))} for d, v in fractions.items()}

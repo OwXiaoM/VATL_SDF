@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from vatl_sdf.alignment_metrics import transform_statistics
 from vatl_sdf.dataset import SDFGraphDataset
 from vatl_sdf.layers import MoESineLayer
 from vatl_sdf.model import SDFModel
@@ -30,12 +31,18 @@ def probe_set(config, frame, subjects, points, seed=0):
 def checkpoint_stats(state, model, probe, device):
     m = state['model']
     z = m['latents'].flatten(1)
-    t = m['transforms']
     out = {'step': state['step'], 'epoch': state['position']['epoch'],
            'latent_norm_median': z.norm(dim=1).median().item(), 'latent_norm_max': z.norm(dim=1).max().item(),
-           'latent_abs_max': z.abs().max().item(), 'latent_mean_norm': z.mean(0).norm().item(),
-           'rotation_deg_median': torch.rad2deg(t[:, :3].norm(dim=1)).median().item(),
-           'translation_mm_median': t[:, 3:].norm(dim=1).median().item()}
+           'latent_abs_max': z.abs().max().item(), 'latent_mean_norm': z.mean(0).norm().item()}
+    model.load_state_dict(m)
+    if model.transform_mode == 'legacy':
+        t = m['transforms']
+        out.update(rotation_deg_median=torch.rad2deg(t[:, :3].norm(dim=1)).median().item(),
+                   translation_mm_median=t[:, 3:].norm(dim=1).median().item())
+    else:  # normalized/affine tables: effective maps (mean-identity gauge applied)
+        stats = transform_statistics(*(x.double().cpu().numpy() for x in model.maps_mm()))
+        out.update(rotation_deg_median=stats['rotation_deg']['median'], translation_mm_median=stats['translation_mm']['median'],
+                   scale_p95=stats['scale']['p95'], anisotropy_median=stats['anisotropy']['median'])
     for name, value in m.items():
         if value.ndim >= 2 and ('weight' in name) and 'latents' not in name:
             out[f'norm/{name}'] = value.norm().item()
@@ -46,7 +53,7 @@ def checkpoint_stats(state, model, probe, device):
             out[f'adam_sq_max/group{gi}'] = max(s.max().item() for s in sq)
             out[f'adam_sq_mean/group{gi}'] = float(np.mean([s.mean().item() for s in sq]))
         out[f'lr/group{gi}'] = group['lr']
-    model.load_state_dict(m); model.eval()
+    model.eval()
     logits = {}
     hooks = [layer.gate.register_forward_hook(lambda mod, inp, outp, k=k: logits.setdefault(k, []).append(outp.detach()))
              for k, layer in enumerate(l for l in model.backbone if isinstance(l, MoESineLayer))]
