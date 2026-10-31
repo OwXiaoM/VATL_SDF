@@ -1,0 +1,111 @@
+# 05b_radius_regression_pointweight: as 05_radius_regression but each enabled graph term has weight = points_fraction (0.15), so a graph point
+# weighs exactly one SDF sample (see 01b; the weight-1.0 pilots 01/02 collapsed to a negative field).
+# 05_radius_regression: ONE change vs configs/sdf/00_sdf_baseline.yaml (same split, seed, schedule).
+# Optional: graph-radius regression |SDF + r| at supported nodes with r >= 0.9 mm only
+# (never floor nodes). Radii are quantized on the 0.8 mm grid and biased by ~0.1-0.2 mm.
+seed: 42
+device: cuda
+output_root: /medias/medical/caravel/zhangx/training_outputs/sdf_only/runs
+run_name: 05b_radius_regression_pointweight
+resume: null
+require_fresh_start: true
+data:
+  tsv: /medias/medical/data/Atlas_training/v1/ixi_metadata_label_t1_fast_sdf.tsv
+  subject_ids: /medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml
+  split_key: mra_atlas_synthseg_label_t1_fast.subject_ids
+  split: train
+  expected_split_counts: {train: 497, val: 55, test: 0}
+  require_complete_split: true
+  max_subjects: null
+  world_bbox_mm: [240, 240, 120]
+  age_range: [19, 87]
+  sex_categories: [M, F]
+  condition_scale: 0.05
+  cache_subjects: 1
+  num_workers: 2
+sampling:
+  sdf:
+    points: 250000
+    surface_band_mm: 2.0
+    fractions: {surface: 0.5, interior: 0.25, outside: 0.25}
+sdf:
+  truncation_mm: 5.0
+  sign_convention: negative_inside
+  distance_units: mm
+model:
+  latent_shape: [256, 3, 3, 3]
+  latent_std: 0.01
+  hidden_size: 1024
+  hidden_layers: 5
+  modulated_layers: [1, 3, 5]
+  omega_first: 30.0
+  omega_hidden: 30.0
+  convolution_kernel: 3
+  use_moe: true
+  num_experts: 4
+  moe_k: 2
+  rigid: true
+loss:
+  # Legacy 02_sdf_only used 0.1. Adam makes the global loss scale minor, but the
+  # SDF : MoE-balance ratio changes from 10:1 to 100:1.
+  sdf_weight: 1.0
+  moe_weight: 0.01
+  tf_weight: 0.0
+  sdf_metric: l1
+graph:
+  # Graph terms apply only where the reference mask supports them (Phase 0a decision):
+  # a node is supported within support_tolerance_mm of the voxelized mask (half a 0.8 mm
+  # graph voxel); supported nodes outside the mask are snapped to their nearest mask voxel
+  # centre for hinge targets. support_strict: true = nearest-voxel rule, no snapping.
+  support_tolerance_mm: 0.4
+  support_strict: false
+  edge_step_mm: 0.4 # spacing of the samples used to accept/reject an edge
+  # Each enabled point term draws points_fraction * sampling.sdf.points EXTRA points per
+  # subject per epoch, so combining terms adds compute and never dilutes another term.
+  centerline_sdf: # default centreline term: reference SDF at points along graph edges
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+  centerline_hinge: # max(0, SDF_pred - ceiling) at supported (snapped) nodes
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+    epsilon_mm: 0.0
+  edge_hinge: # same hinge along mask-supported edges; never connects separate graph pieces
+    enabled: false
+    weight: 1.0
+    points_fraction: 0.15
+    epsilon_mm: 0.0
+  radius: # optional: |SDF_pred + r| at supported nodes with r >= min_radius_mm (never floor nodes)
+    enabled: true
+    weight: 0.15 # = points_fraction
+    points_fraction: 0.15
+    min_radius_mm: 0.9
+  eikonal: # optional: (|grad SDF|_mm - 1)^2 on SDF samples with |reference| <= band_mm
+    enabled: false
+    weight: 0.1
+    band_mm: 2.0
+optimizer:
+  lr_model: 0.0001
+  lr_latent: 0.0005
+  lr_transform: 0.0001
+  weight_decay: 0.0
+  scheduler_epochs: 1000 # independent of short-run stopping
+  eta_min: 0.000025
+training:
+  epochs: 1000
+  subjects_per_rank: 5 # four GPUs -> 20 subjects per distributed batch
+  # SDF points per rank per optimizer step. Unchanged from the legacy runs, which also
+  # sent 25000 MRA points per step; that half of the compute is now freed.
+  task_points_per_step: 25000
+  checkpoint_every: 10
+  atlas_every: 10
+  max_steps: null # global optimizer-step limit; smoke tests only
+  stop_after_epoch: 199 # inclusive epoch (200-epoch suite), scheduler horizon unchanged
+atlas:
+  age: 20.0
+  sex: M
+  spacing_mm: [1, 1, 1]
+  gaussian_span_years: 5.0
+  max_subjects: 100
+  chunk_size: 20000
