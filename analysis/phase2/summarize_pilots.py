@@ -40,12 +40,12 @@ def summarize(directory):
 
 def main():
     p = argparse.ArgumentParser(); p.add_argument('--root', default='/medias/medical/caravel/zhangx/training_outputs/sdf_only/pilots')
-    p.add_argument('--prefix', default='20261030_p2_'); p.add_argument('--output')
+    p.add_argument('--tag', default='_p2_', help='pilot directories are <date><tag><config>'); p.add_argument('--output')
     a = p.parse_args()
     rows = {}
-    for d in sorted(Path(a.root).glob(a.prefix + '*')):
+    for d in sorted(Path(a.root).glob('*' + a.tag + '*'), key=lambda d: d.name.split(a.tag, 1)[1]):
         if (d / 'diagnostics' / 'diagnostics.json').exists() and 'atlas' in json.loads((d / 'diagnostics' / 'diagnostics.json').read_text()):
-            rows[d.name[len(a.prefix):]] = summarize(d)
+            rows[d.name.split(a.tag, 1)[1]] = summarize(d)
     table = pd.DataFrame(rows).T
     pd.set_option('display.width', 250); pd.set_option('display.max_columns', 40)
     print(table.round(3).T.to_string())

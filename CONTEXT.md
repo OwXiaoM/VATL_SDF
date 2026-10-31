@@ -702,7 +702,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46335–46339 | pilots 01–05 (first submission) | | | 0 | CANCELLED before start: live code tree; replaced by 46343–46347 |
 | 46334 | Phase 2 pilot 00_sdf_baseline (100 subj, 40k steps) + diagnostics | 1 L40S | sdf_only/pilots/20261030_p2_00_sdf_baseline | 1.80 | COMPLETED 1 h 48 min, PILOT_OK |
 | 46342 | continuation of 46332 (afterany; stop guard exits if done) | 3 L40S, frozen e06b276 | sdf_only/runs/00_sdf_baseline_full | pending | |
-| 46343–46347 | Phase 2 pilots 01–05 | 1 L40S each, frozen e06b276 | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46343 | Phase 2 pilot 01_centerline_sdf | 1 L40S, frozen e06b276 | sdf_only/pilots/20261030_p2_01_centerline_sdf | 2.03 | COMPLETED, PILOT_OK; degenerate field (see screening) |
+| 46344–46347 | Phase 2 pilots 02–05 | 1 L40S each, frozen e06b276; 03–05 nice 100 | sdf_only/pilots/20261030_p2_<config> | running/pending | |
+| 46468 | Phase 2 pilot 01b_centerline_sdf_pointweight | 1 L40S, frozen 631f3f0 | sdf_only/pilots/20261031_p2_01b_centerline_sdf_pointweight | pending | |
 | 46389 | post-baseline: 0c (x1/x2, atlas 1/0.5 mm), population maps 1 mm, centreline density | 1 L40S, 12 h, afterok:46342, frozen 41199e4 | sdf_only/analysis/20261031_00_baseline_post | pending | |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
@@ -717,8 +719,28 @@ native grid; reference-relative connectivity). Rows added as pilots finish.
 | Pilot | Dice | band MAE mm | vol ratio | comp ratio >=10 | largest diff | inside floor / 0.9-1.2 / 1.2-1.6 / >=1.6 | atlas 1 mm comps (largest) | SDF L1 last 2k |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
 | 00 baseline | 0.184 | 1.73 | 1.39 | 5.40 | -0.33 | 0.08 / 0.24 / 0.47 / 0.75 (ref floor 0.95) | 1658 (0.55) | 0.139 |
+| 01 centerline_sdf (w 1.0) | 0.019 | 3.43 | 96.1 | 0.37 | +0.09 | 0.99 / 1.00 / 1.00 / 1.00 | 941 (1.00), 1.67 M voxels | 0.251 |
 
 Observation (fact): at pilot scale individual fits are poor (Dice 0.18, 5.4x
 the reference's >=10-voxel components), so pilot comparisons measure early
 training behaviour, not converged fits. Whether this persists at full scale is
 answered by 0c on the full baseline.
+
+Pilot 01 (job 46343, 2.0 h): DEGENERATE. Facts: the predicted SDF is negative almost
+everywhere (volume ratio 96, atlas 1.67 M voxels; "connectivity" and centreline
+inside fractions are therefore meaningless). The SDF L1 rises from step ~3 onward
+(0.418 -> 0.455 by step 5, while 00 falls to 0.35), and centerline_sdf_raw plateaus
+at ~0.066 normalized, the magnitude of the targets. Code checks (coordinates,
+normalization, target lookup, loss, split of the concatenated forward, MoE
+balance_count) found no bug. Hypothesis: term weighting. Each graph term is its own
+mean with weight 1.0, so a centreline point weighs ~6.7x an SDF point (1/0.15),
+and all centreline targets are <= ~0; a global negative shift is the cheapest
+reduction early in training. Test: 01b_centerline_sdf_pointweight (weight 0.15
+= per-point weight of an SDF sample, i.e. literally "extra SDF samples"; job
+46468). Pilots 02-05 also use weight 1.0 and the hinges also push only downward;
+03-05 were deprioritized (nice 100) so 01b runs first; 02 was already running.
+
+Full baseline (46332) trajectory (fact): SDF L1 (1k-step means) 0.172 at step 0,
+0.118 at 10k, a plateau ~0.111-0.114 from 15k to 87k (epoch ~52) with a slight upward
+drift. Pilot 00 shows the same rise after ~10k (0.123 -> 0.137). Not yet explained;
+learning rate / MoE routing are candidate explanations (hypotheses).
