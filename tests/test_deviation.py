@@ -145,6 +145,7 @@ class DeviationPipelineTests(unittest.TestCase):
         fpr = summary['fpr']['learned/uniform']
         self.assertEqual((fpr['null_loo']['subjects'], fpr['validation']['subjects']), (3, 2))
         self.assertIn('affine_d2', fpr['validation']['per_score'])
+        self.assertIn('primary_family_minp', fpr['validation']); self.assertIn('elements_bh_population', fpr['validation'])
         self.assertNotIn('affine_d2', summary['fpr']['centroid/uniform']['validation']['per_score'])
         scores = pd.read_csv(out / 'scores.tsv', sep='\t', keep_default_na=False, na_values=[''])  # 'null' is a set name
         p = scores.p.dropna()
@@ -187,3 +188,10 @@ class DeviationStatisticsTests(unittest.TestCase):
         dist = np.array([[1.], [2.], [3.], [4.], [np.nan]])
         out = radius_deviation(np.array([2.5]), dist, np.ones(5))
         self.assertAlmostEqual(out[0, 0], 0.); self.assertAlmostEqual(out[0, 2], 0.5)
+        self.assertAlmostEqual(out[0, 3], 1.)                               # median value: two-sided p = 1
+        far = radius_deviation(np.array([9.]), dist, np.ones(5))
+        self.assertAlmostEqual(far[0, 3], 2 * 1 / 5)                        # (0 + c) / (4 + c), c = 1
+
+    def test_outcome_p(self):
+        from vatl_sdf.deviation import outcome_p
+        np.testing.assert_allclose(outcome_p(np.array([0.9, 0.9, 0.2, 0.2]), np.array([False, True, True, False])), [0.1, 1., 0.2, 1.])

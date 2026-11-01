@@ -79,16 +79,25 @@ def weighted_quantiles(values, w, qs):
 
 
 def radius_deviation(values, distribution, w, min_subjects=3):
-    """values (k,), distribution (subjects, k) NaN = absent: abs error, robust z, weighted percentile per node."""
-    out = np.full((len(values), 3), np.nan)
+    """values (k,), distribution (subjects, k) NaN = absent: abs error, robust z, weighted percentile and a
+    population-referenced two-sided p-value min(1, 2 min(P(X <= v), P(X >= v))) (one pseudo-subject) per node."""
+    out = np.full((len(values), 4), np.nan)
     for k, v in enumerate(values):
         ok = np.isfinite(distribution[:, k]) & (w > 0)
         if not np.isfinite(v) or ok.sum() < min_subjects:
             continue
         col, wk = distribution[ok, k], w[ok]
         q1, med, q3 = weighted_quantiles(col, wk, [0.25, 0.5, 0.75])
-        out[k] = abs(v - med), (v - med) / max((q3 - q1) / 1.349, 1e-6), wk[col <= v].sum() / wk.sum()
+        c = wk.sum() / ess(wk)
+        tail = min(wk[col <= v].sum() + c, wk[col >= v].sum() + c) / (wk.sum() + c)
+        out[k] = abs(v - med), (v - med) / max((q3 - q1) / 1.349, 1e-6), wk[col <= v].sum() / wk.sum(), min(1., 2 * tail)
     return out
+
+
+def outcome_p(p_success, observed):
+    """Population-referenced p-value of a binary outcome: its probability if it is the less likely one, else 1."""
+    q = np.where(observed, p_success, 1 - p_success)
+    return np.where(q < 0.5, q, 1.)
 
 
 def affine_vector(A, t):
@@ -225,13 +234,14 @@ def score_query(task):
             scores[f'edge_total_{tag}'] = float(surprise.sum())
             obs = attr['populations'][pop_key]
             both_tr = np.array([r['populations'][pop_key]['both'] for r in tr], float)
-            conn = {}
+            conn, conn_p = {}, {}
             for crit in ('graph', 'mask'):
                 g_tr = np.array([r['populations'][pop_key][crit] for r in tr], float)
                 pc = smoothed(w @ (both_tr * g_tr), w @ both_tr, w)
                 sc = np.where(obs['both'], bernoulli_surprise(pc, obs[crit]), np.nan)
                 scores[f'conn_{crit}_total_{tag}'] = float(np.nansum(sc))
                 conn[crit] = sc
+                conn_p[crit] = np.where(obs['both'], outcome_p(pc, obs[crit]), np.nan)
             node_tr = np.array([r['populations'][pop_key]['node_radius'] for r in tr])  # (subjects, nodes, 2)
             scale_tr = np.array([r['scale'] for r in tr])[:, None]
             floor = obs['node_radius'][:, 1] <= FLOOR_MM
@@ -247,7 +257,9 @@ def score_query(task):
             elements[pop_key] = {'edge_surprise': surprise, 'edge_present': yq, 'edge_p': pe,
                                  'conn_graph': conn['graph'], 'conn_mask': conn['mask'],
                                  'radius_absz': np.where(floor, np.nan, np.abs(dev['sdf'][:, 1])),
-                                 'radius_z': dev['sdf'][:, 1], 'radius_percentile': dev['sdf'][:, 2], 'floor': floor}
+                                 'radius_z': dev['sdf'][:, 1], 'radius_percentile': dev['sdf'][:, 2], 'floor': floor,
+                                 'pop_p_edge': outcome_p(pe, yq), 'pop_p_conn_graph': conn_p['graph'],
+                                 'pop_p_conn_mask': conn_p['mask'], 'pop_p_radius': np.where(floor, np.nan, dev['sdf'][:, 3])}
             if pop_key == S['primary_population']:
                 elements[pop_key]['defects'] = classify_absent(pop, yq, pe, m, y)
     return key, method, wname, scores, elements
@@ -317,10 +329,16 @@ def primary_scores(method, available):
 
 
 ELEMENT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz')
+POPULATION_P = {'edge_surprise': 'pop_p_edge', 'conn_graph': 'pop_p_conn_graph', 'conn_mask': 'pop_p_conn_mask',
+                'radius_absz': 'pop_p_radius'}
 
 
 def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
-    """Subject and element p-values of evaluation keys against the null keys (null keys: leave-self-out)."""
+    """Subject and element p-values of evaluation keys against the null keys (null keys: leave-self-out).
+    Subject level: per-score empirical p; Holm over the primary family; family min-p calibrated on the null
+    (p_family = (1 + #null with min-p <= own) / (1 + #null); full resolution unlike Holm with ~100 null subjects).
+    Element level, BH within family: (a) empirical p against the null subjects' same element (resolution 1/#null);
+    (b) population-referenced p (outcome probability / two-sided radius tail, resolution ~1/ESS)."""
     scores = {k: results[(k, method, wname)][0] for k in keys_null + keys_eval}
     names = sorted({s for k in scores for s, v in scores[k].items() if isinstance(v, float)} - {'ess'})
     out = {}
@@ -336,9 +354,15 @@ def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
                 v = el[pop_key][f]
                 nulls = np.array([results[(j, method, wname)][1][pop_key][f] for j in null])
                 p_el = np.array([empirical_p(v[i], nulls[:, i]) for i in range(len(v))])
-                fam[f] = {'p': p_el, 'reject': benjamini_hochberg(p_el, q)}
+                p_pop = np.asarray(el[pop_key][POPULATION_P[f]], float)
+                fam[f] = {'p': p_el, 'reject': benjamini_hochberg(p_el, q),
+                          'p_population': p_pop, 'reject_population': benjamini_hochberg(p_pop, q)}
             rec['elements'][pop_key] = fam
+        rec['min_p'] = float(np.nanmin([pv[s] for s in prim]))
         out[k] = rec
+    for k, rec in out.items():
+        null = [j for j in keys_null if j != k]
+        rec['p_family'] = (1. + sum(out[j]['min_p'] <= rec['min_p'] for j in null)) / (1. + len(null))
     return out
 
 
@@ -347,7 +371,8 @@ def false_positive_rates(pvals, keys, alpha):
     rates = {s: float(np.nanmean([pvals[k]['p'][s] <= alpha if np.isfinite(pvals[k]['p'][s]) else np.nan for k in keys]))
              for s in names}
     out = {'subjects': len(keys), 'nominal_alpha': alpha, 'per_score': rates,
-           'primary_holm_any': float(np.mean([pvals[k]['holm_any'] for k in keys]))}
+           'primary_holm_any': float(np.mean([pvals[k]['holm_any'] for k in keys])),
+           'primary_family_minp': float(np.mean([pvals[k]['p_family'] <= alpha for k in keys]))}
     elements = {}
     for pop_key in pvals[keys[0]]['elements']:
         elements[pop_key] = {f: {'subjects_with_discovery': float(np.mean([pvals[k]['elements'][pop_key][f]['reject'].any() for k in keys])),
@@ -355,6 +380,17 @@ def false_positive_rates(pvals, keys, alpha):
                              for f in ELEMENT_FAMILIES}
         elements[pop_key]['any_family'] = float(np.mean([any(pvals[k]['elements'][pop_key][f]['reject'].any() for f in ELEMENT_FAMILIES) for k in keys]))
     out['elements_bh'] = elements
+    population = {}
+    for pop_key in pvals[keys[0]]['elements']:
+        fam = lambda k, f: pvals[k]['elements'][pop_key][f]
+        population[pop_key] = {f: {'subjects_with_discovery': float(np.mean([fam(k, f)['reject_population'].any() for k in keys])),
+                                   'mean_discoveries': float(np.mean([fam(k, f)['reject_population'].sum() for k in keys])),
+                                   'element_fraction_p_le_alpha': float(np.nanmean(np.concatenate([fam(k, f)['p_population'] <= alpha
+                                                                                                    for k in keys]).astype(float)))
+                                   if any(len(fam(k, f)['p_population']) for k in keys) else None}
+                               for f in ELEMENT_FAMILIES}
+        population[pop_key]['any_family'] = float(np.mean([any(fam(k, f)['reject_population'].any() for f in ELEMENT_FAMILIES) for k in keys]))
+    out['elements_bh_population'] = population
     return out
 
 
@@ -588,7 +624,8 @@ def write_subject_report(out, query, method, wname, scores, elements, pv, pops, 
     directory = out / 'subjects' / query['subject_id']
     directory.mkdir(parents=True, exist_ok=True)
     report = {'subject_id': query['subject_id'], 'set': query['set'], 'age': query['age'], 'method': method, 'weighting': wname,
-              'scores': scores, 'p': pv['p'], 'primary_scores': pv['primary'], 'flagged_holm': pv['holm_any'], 'populations': {}}
+              'scores': scores, 'p': pv['p'], 'primary_scores': pv['primary'], 'flagged_holm': pv['holm_any'],
+              'p_family_minp': pv['p_family'], 'populations': {}}
     for pop_key, el in elements.items():
         if not pop_key.startswith('r'):
             continue
@@ -598,13 +635,21 @@ def write_subject_report(out, query, method, wname, scores, elements, pv, pops, 
             'edges': [{'edge': list(pop['edges'][i]), 'p_edge': float(el['edge_p'][i]), 'present': bool(el['edge_present'][i]),
                        'surprise': float(el['edge_surprise'][i]), 'p_emp': float(fam['edge_surprise']['p'][i]),
                        'bh_reject': bool(fam['edge_surprise']['reject'][i]),
+                       'p_population': float(fam['edge_surprise']['p_population'][i]),
+                       'bh_reject_population': bool(fam['edge_surprise']['reject_population'][i]),
                        'conn_graph_surprise': float(el['conn_graph'][i]), 'conn_graph_p_emp': float(fam['conn_graph']['p'][i]),
                        'conn_graph_bh_reject': bool(fam['conn_graph']['reject'][i]),
+                       'conn_graph_p_population': float(fam['conn_graph']['p_population'][i]),
+                       'conn_graph_bh_reject_population': bool(fam['conn_graph']['reject_population'][i]),
                        'conn_mask_surprise': float(el['conn_mask'][i]), 'conn_mask_p_emp': float(fam['conn_mask']['p'][i]),
-                       'conn_mask_bh_reject': bool(fam['conn_mask']['reject'][i])} for i in range(len(pop['edges']))],
+                       'conn_mask_bh_reject': bool(fam['conn_mask']['reject'][i]),
+                       'conn_mask_p_population': float(fam['conn_mask']['p_population'][i]),
+                       'conn_mask_bh_reject_population': bool(fam['conn_mask']['reject_population'][i])} for i in range(len(pop['edges']))],
             'nodes': [{'node': i, 'position_mm': np.asarray(pop['nodes_mm'][i]).tolist(), 'radius_z': float(el['radius_z'][i]),
                        'radius_percentile': float(el['radius_percentile'][i]), 'floor': bool(el['floor'][i]),
-                       'p_emp': float(fam['radius_absz']['p'][i]), 'bh_reject': bool(fam['radius_absz']['reject'][i])}
+                       'p_emp': float(fam['radius_absz']['p'][i]), 'bh_reject': bool(fam['radius_absz']['reject'][i]),
+                       'p_population': float(fam['radius_absz']['p_population'][i]),
+                       'bh_reject_population': bool(fam['radius_absz']['reject_population'][i])}
                       for i in range(len(pop['nodes_mm']))],
             'absent_expected_edges': el.get('defects')}
         if 'voxel_surprise_map' in elements:  # validation, uniform: paint per-edge / per-node values
