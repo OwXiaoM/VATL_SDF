@@ -757,9 +757,10 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | submitted 18:52: gen 47005, shards 47006-47009, merge 47010, graph 47011, attribute 47012, post 47013; all COMPLETED by 19:15 (gen 52 min, shards 20 min) |
 | (auto) | Watcher (scratchpad autosubmit_l6_cal.sh, frozen 140138d): after the latent-6^3 prob-atlas merge -> atlas recalibration (CPU, QOS dev) | | sdf_only/analysis/20261101_l6full_atlas_calibration | | done: job 47019 COMPLETED 3 min |
 | 47021-47024 | Deviation stage: per-subject hard decodings of all 497 training subjects (4 shards, --save-subjects; bit-packed) on 21_a4_full_latent6 final (QOS dev) | 4 x 1 L40S, frozen 255addf | sdf_only/analysis/20261101_dev_decodings | | COMPLETED 20 min each (6.3 MB packed) |
-| 47025-47041 | Deviation stage: test-time refits (align 10 / total 36 / 50 steps / horizon 36), chunks of 10: validation x2 (first 20 YAML val IDs), null x10, calibration x5 (configs/evaluation/deviation_sets.json) | 17 x 1 L40S, QOS normal/dev alternating, frozen 255addf | sdf_only/analysis/20261101_dev_refit | | submitted |
-| 47042 | ANTs check: binaries on a compute node + timing of one affine and one SyN (clipped SDF, IXI569 -> IXI414, both ANTs-template reserve) (CPU, QOS dev) | 8 CPU, frozen 9d93652 | sdf_only/analysis/20261101_ants_timing | 0 | submitted |
+| 47025-47041 | Deviation stage: test-time refits (align 10 / total 36 / 50 steps / horizon 36), chunks of 10: validation x2 (first 20 YAML val IDs), null x10, calibration x5 (configs/evaluation/deviation_sets.json) | 17 x 1 L40S, QOS normal/dev alternating, frozen 255addf | sdf_only/analysis/20261101_dev_refit | | COMPLETED, 12-13 min per chunk of 10 (~75 GPU-s/subject) |
+| 47042 | ANTs check: binaries on a compute node + timing of one affine and one SyN (clipped SDF, IXI569 -> IXI414, both ANTs-template reserve) (CPU, QOS dev) | 8 CPU, frozen 9d93652 | sdf_only/analysis/20261101_ants_timing | 0 | COMPLETED 8.8 min: affine 188 s, SyN 333 s (8 threads, native grid) |
 | 47046 | Deviation pipeline real-data SMOKE (not a result): null 4 / calibration 2 diagnostic subjects + 5 test subjects from the 20261101_l6full_gen refits (CPU, QOS dev) | 16 CPU, frozen 9cfce5c | sdf_only/analysis/20261101_dev_smoke (inputs 20261101_dev_smoke_inputs) | 0 | COMPLETED 8 min, 21 GB RAM |
+| 47050 | Deviation statistics, full run: null 100 (LOO, refitted), calibration 50, validation 20; decoder / learned / centroid; uniform + age sigma 7/5/10 (CPU) | 16 CPU, 240 GB, frozen 9cfce5c | sdf_only/analysis/20261101_deviation | 0 | submitted |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1601,3 +1602,13 @@ sigma 7 y (5, 10 as checks).
   primary score family; FPR on null LOO and validation; absent expected edges (p_e >= 0.5) classified as
   radius_threshold / graph_defect / displaced / absent. Per-subject JSON reports (null + validation; uniform and sigma
   7) and NIfTI maps (validation, uniform: VoxelSurprise, EdgeSurprise, NodeRadiusZ).
+
+### ANTs check (job 47042; timing only, no template, no cohort)
+
+ANTs 2.6.4 binaries run on a compute node (helix, l40s partition, 8 threads). One pair of training subjects from the
+ANTs-template reserve (IXI569 -> IXI414), clipped SDF (+-5 mm), MeanSquares, native grid (256x256x100, 0.94x0.94x0.8 mm):
+rigid+affine 188 s (4 levels, 1000x500x250x100), SyN[0.1,3,0] 333 s (100x70x50x20) after the affine. Vessel-mask Dice
+moving vs fixed: 0.03 unregistered, 0.13 affine, 0.18 SyN (single pair; pairwise subject-to-subject, not template).
+Projection (hypothesis, from this one pair): ~520 s per subject for affine + SyN on 8 threads; at 16 parallel jobs
+(128 cores) a 100-subject template with 4 SyN iterations ~3.6 h and 552 cohort registrations ~5 h at 1 mm; roughly
+3x less at 1.5 mm.
