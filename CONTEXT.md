@@ -751,7 +751,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
-| 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | | pending |
+| 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | 0c 0.299; test 0.353; refit 0.385; rec3 0.369/0.452; MoE1 0.667 | done (train 2 h 14, post 40 min) |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1357,6 +1357,12 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   latents co-trained with a moving network (fact; cause not tested). Volume over-estimation remains (2.0).
   Hypothesis: the 3^3 latent grid limits per-subject spatial detail at 497 subjects; at 100 subjects the network
   compensates by storing subjects in its weights (memorization), which it cannot do at 497.
+- sg_s250 (job 46904/46905; 250 subj incl. the 6, 20 epochs, 1 GPU, 50k steps; train 2 h 14, post 40 min): 0c Dice
+  0.299, MAE 1.55, volume 1.24, component ratio 13.1 (>= 10 vox: 8.8); test Dice 0.353 / MAE 1.66 / volume 1.91 / comp
+  12.2; train_refit 0.385; recurrence 3 mm train 0.369, test 0.452 (centroid 0.152); MoE layer-1 entropy 0.667.
+  => (fact) subject series at 20 epochs, 1 GPU (5 subj/step): trained fit 0.755 (100) -> 0.299 (250) -> [497 on 3 GPUs:
+  0.280]; test fit 0.394 -> 0.353 -> [0.318]. The trained-fit collapse happens between 100 and 250 subjects (the
+  memorization regime ends); the test fit declines gradually with subject count.
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 
