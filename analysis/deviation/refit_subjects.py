@@ -17,7 +17,7 @@ import torch
 from analysis.generalization.evaluate_generalization import test_frame
 from vatl_sdf.test_time_fit import SubjectSampler, build_fitting_model, fit, subject_maps, training_steps_per_epoch
 
-SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4}  # 1 = the generalization 'test' group
+SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4, 'null_extra': 5}  # 1 = the generalization 'test' group
 
 
 def set_frame(config, frame, sets, name):

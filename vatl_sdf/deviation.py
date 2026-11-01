@@ -427,9 +427,13 @@ def select_calibration(method, wname, sigma, cal_keys, smooth_mm, methods, max_v
 
 
 # ---------------------------------------------------------------- main
-def load_fitted(directory, set_name):
+def load_fitted(directories, set_name):
+    """Refitted transforms of a set from one or more directories (fitted_<set>_*.pt; a 'null' glob also matches
+    fitted_null_extra_*.pt, the null extension)."""
     out = {}
-    for path in sorted(Path(directory).glob(f'fitted_{set_name}_*.pt')):
+    paths = [x for d in ([directories] if isinstance(directories, (str, Path)) else directories)
+             for x in sorted(Path(d).glob(f'fitted_{set_name}_*.pt'))]
+    for path in paths:
         f = torch.load(path, map_location='cpu', weights_only=False)
         for k, s in enumerate(f['subject_ids']):
             out[s] = (np.asarray(f['A'][k], float), np.asarray(f['t_mm'][k], float))
@@ -453,7 +457,7 @@ def load_decodings(directory, subject_ids, shape, affine):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--checkpoint', required=True); p.add_argument('--sets', required=True)
-    p.add_argument('--decodings', required=True); p.add_argument('--refit', required=True); p.add_argument('--output', required=True)
+    p.add_argument('--decodings', required=True); p.add_argument('--refit', required=True, nargs='+'); p.add_argument('--output', required=True)
     p.add_argument('--radii-mm', type=float, nargs='+', default=[3.0, 2.0], help='first = primary population')
     p.add_argument('--tau', type=float, default=0.1); p.add_argument('--edge-cover', type=float, default=0.5)
     p.add_argument('--min-skeleton-voxels', type=int, default=5); p.add_argument('--min-radius-mm', type=float, default=1.2)
