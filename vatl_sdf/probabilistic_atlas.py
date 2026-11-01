@@ -37,8 +37,9 @@ THRESHOLDS = (0.1, 0.25, 0.5)
 RELIABILITY_EDGES = (0., 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 + 1e-9)
 
 
-def accumulate(model, frame, config, coords, indices, tau_soft_mm):
-    """Partial sums over `indices` of 1[SDF < 0] and sigmoid(-SDF / tau) on the template grid."""
+def accumulate(model, frame, config, coords, indices, tau_soft_mm, per_subject=None):
+    """Partial sums over `indices` of 1[SDF < 0] and sigmoid(-SDF / tau) on the template grid; with a list
+    `per_subject`, each subject's 1[SDF < 0] is also appended bit-packed (np.packbits, C order)."""
     tau = config['sdf']['truncation_mm']
     hard = np.zeros(len(coords)); soft = np.zeros(len(coords))
     for index in indices:
@@ -46,6 +47,8 @@ def accumulate(model, frame, config, coords, indices, tau_soft_mm):
         sdf = predict_field(model, coords, condition_vector(config, row.scan_age, row.sex), config,
                             latent_override=model.latents[int(index):int(index) + 1])[:, CHANNELS['vessel_sdf_normalized']] * tau
         hard += sdf < 0
+        if per_subject is not None:
+            per_subject.append(np.packbits(sdf < 0))
         soft += 1. / (1. + np.exp(np.clip(sdf / tau_soft_mm, -60, 60)))
     return hard, soft
 
@@ -142,8 +145,13 @@ def shard_main(a):
     coords, shape, affine = world_grid(config, [a.spacing] * 3)
     indices = np.array_split(np.arange(len(frame)), a.num_shards)[a.shard]
     start = time.time()
-    hard, soft = accumulate(model, frame, config, coords, indices, a.tau_mm)
+    per_subject = [] if a.save_subjects else None
+    hard, soft = accumulate(model, frame, config, coords, indices, a.tau_mm, per_subject)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
+    if per_subject is not None:  # per-subject decodings for exact leave-one-out / weighted maps
+        np.savez_compressed(out / f'subjects_{a.shard:02d}_of_{a.num_shards:02d}.npz', packed=np.stack(per_subject) if per_subject else np.zeros((0, (len(coords) + 7) // 8), np.uint8),
+                            indices=indices, subject_ids=np.asarray([str(s) for s in frame.subject_id.values[indices]], dtype='U64'), shape=shape,
+                            affine=affine, step=checkpoint['step'])
     np.savez_compressed(out / f'shard_{a.shard:02d}_of_{a.num_shards:02d}.npz', hard=hard.astype(np.float32),
                         soft=soft.astype(np.float32), indices=indices, shape=shape, affine=affine,
                         step=checkpoint['step'], tau_mm=a.tau_mm, seconds=time.time() - start)
@@ -237,6 +245,7 @@ def main():
     s.add_argument('--shard', type=int, required=True); s.add_argument('--num-shards', type=int, required=True)
     s.add_argument('--spacing', type=float, default=1.0); s.add_argument('--tau-mm', type=float, default=0.5)
     s.add_argument('--device', default='cuda'); s.add_argument('--chunk-size', type=int, default=400000)
+    s.add_argument('--save-subjects', action='store_true', help='also save each subject\'s hard decoding (bit-packed)')
     m = sub.add_parser('merge'); m.add_argument('--checkpoint', required=True); m.add_argument('--shards', required=True)
     m.add_argument('--output', required=True); m.add_argument('--fitted', help='fitted_test.pt of the generalization run')
     m.add_argument('--centreline-radius-mm', type=float, default=1.0); m.add_argument('--min-radius-mm', type=float, default=1.2)
