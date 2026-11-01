@@ -746,7 +746,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46889 | Vessel-graph atlas step 1 on full A4 final (CPU) | 16 CPU, frozen 08c27c1 | sdf_only/analysis/20261101_a4full_graph_atlas | 0 | COMPLETED 2.5 min |
 | 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | 0c 0.280; test 0.318; refit 0.336; rec3 0.375/0.394; MoE1 0.585 | done (train 1 h 43, post 45 min) |
 | 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | 0c 0.397; test 0.543; refit 0.565; rec3 0.367/0.419; MoE1 0.533 | done (train 1 h 52, post 45 min) |
-| 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | | pending |
+| 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | 0c 0.301; test 0.362; refit 0.405; rec3 0.355/0.413; MoE1 0.406 | done (train 2 h 30, post 1 h 43) |
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
@@ -1363,6 +1363,17 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   => (fact) subject series at 20 epochs, 1 GPU (5 subj/step): trained fit 0.755 (100) -> 0.299 (250) -> [497 on 3 GPUs:
   0.280]; test fit 0.394 -> 0.353 -> [0.318]. The trained-fit collapse happens between 100 and 250 subjects (the
   memorization regime ends); the test fit declines gradually with subject count.
+- sg_width1536 (job 46894/46895; hidden width 1536, else = sg_r20; train 2 h 30, post 1 h 43): 0c Dice 0.301, MAE 1.57,
+  volume 1.16, component ratio 15.1; test Dice 0.362 / MAE 1.69 / volume 1.69 / comp 11.0; train_refit 0.405;
+  recurrence 3 mm train 0.355, test 0.413; MoE layer-1 entropy 0.406 (lowest so far: sharper layer-1 routing).
+  => (fact) modest gain (test 0.318 -> 0.362, volume 2.36 -> 1.69) at ~1.5x training time; far smaller than latent 6^3.
+
+Recommended-recipe candidate (decided 2026-11-01 after sg_latent6, before sg_r40 / sg_latentlr / sg_s100g3 finished):
+config 21_a4_full_latent6 = 13_a4_full with ONE change, latent grid 256x6^3 (36 epochs, 3 GPUs, run horizon), so it is
+directly comparable with full A4. Evaluated with the same pipeline (auto-submitted at the final checkpoint):
+generalization (36 test-time epochs, same 6 + 5 subjects), probabilistic atlas (4 shards + merge with fitted test
+transforms), graph atlas, connectivity/radius/node atlas, 0c + alignment + inspect (MoE). If sg_r40 or sg_latentlr show
+a large additional effect, a combined follow-up would need its own screening (not one factor).
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 
