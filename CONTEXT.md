@@ -766,7 +766,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47081 | Perturbation manifest (CoW centre, targets, eligibility, 332 copies) (CPU, QOS dev) | 4 CPU, frozen fad1ebb | sdf_only/analysis/20261101_perturbation/manifest.json | 0 | COMPLETED 10 s |
 | 47082-47115 | Perturbed-copy refits (34 chunks of 10, manifest priority order: removal, thin, displace 3, displace 5; in-memory copies regenerated with commit 007f163) | 34 x 1 L40S, QOS normal/dev, frozen 007f163 | sdf_only/analysis/20261101_perturbation/refit | | completed (34/34, ~12-13 min each) |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
-| 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | running |
+| 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1748,3 +1748,44 @@ Hypotheses: (1) the null-referenced loss is resolution (1/101) under BH over ~20
 (job 47117). (2) Subject-level learned detection of thinning/displacement (0.10-0.13 vs baseline 0.07 per copy)
 partly reflects refit variability of the copies (each copy has its own refitted transform) rather than the
 perturbation; not separated here.
+
+### Null 100 vs null 300 (job 47117, CPU 29 min; screening evidence)
+
+Output sdf_only/analysis/20261101_deviation_perturb_null300 (sets deviation_sets_null300.json: null = 100 + 200 extra
+refitted training subjects; calibration, validation and copies unchanged). One factor changed: null size.
+
+FPR, null (LOO) / validation (n 20), uniform:
+
+| method | family min-p, null 100 | family min-p, null 300 | Holm-any null 100 -> 300 | element BH null-ref, null 100 | element BH null-ref, null 300 | element BH pop-ref (both) |
+|---|---|---|---|---|---|---|
+| decoder  | 0.05 / 0.05 | 0.047 / 0.05 | 0.04 -> 0.04 | - | - | - |
+| learned  | 0.00 / 0.05 | 0.043 / 0.05 | 0.00 -> 0.043 | 0.01 / 0.05 | 0.037 / 0.10 | 0.03 / 0.05 |
+| centroid | 0.05 / 0.00 | 0.047 / 0.00 | 0.00 -> 0.037 | 0.01 / 0.00 | 0.023 / 0.00 | 0.03 / 0.00 |
+
+Sensitivity, null 300 (element detection pop-ref / null-ref; subject family min-p per copy, subjects with >= 1):
+
+| method | baseline element | remove | thin | displace 3 | displace 5 |
+|---|---|---|---|---|---|
+| learned element  | 0.02 / 0.05 | 0.43 / **0.48** | 0.04 / 0.01 | 0.05 / 0.04 | 0.05 / 0.01 |
+| learned subject  | 0.07 (1/20) | 0.23 (9) | 0.12 (4) | 0.12 (4) | 0.10 (3) |
+| centroid element | 0.00 / 0.00 | 0.28 / **0.30** | 0.02 / 0.02 | 0.06 / 0.07 | 0.04 / 0.05 |
+| centroid subject | 0.00 (0/20) | 0.17 (8) | 0.01 (1) | 0.01 (1) | 0.00 (0) |
+| decoder subject  | 0.02 (1/20) | 0.02 (1) | 0.02 (1) | 0.01 (1) | 0.01 (1) |
+
+Removal per edge, null 300 (pop-ref / null-ref / subject), learned: e4 0.72/0.72/0.33, e14 0.44/0.56/0.22,
+e6 0.59/0.59/0.24, e11 0.00/0.00/0.08, e5 0.22/0.33/0.33, e7 0.33/0.44/0.11; centroid: e4 0.22/0.33/0.22,
+e14 0.22/0.28/0.11, e6 0.41/0.41/0.12, e11 0.33/0.33/0.08, e5 0.11/0.11/0.33, e7 0.33/0.22/0.22.
+
+Facts:
+- Hypothesis (1) of the null-100 section confirmed at screening level: with 300 null subjects the null-referenced
+  element p-values reach the BH thresholds; learned removal detection 0.10 -> 0.48, centroid 0.02 -> 0.30, now equal to
+  or above population-referenced. Population-referenced numbers are unchanged (they do not use the null).
+- Null calibration of the subject tests improved: Holm-any and family min-p are now close to nominal on the null
+  (0.04-0.047) instead of 0.00 for learned (ties at null 100).
+- Cost: learned null-referenced element validation FPR rose to 0.10 (2/20: one connectivity-graph, one radius
+  discovery), vs null 0.037. n = 20, compatible with 0.05 (not tested formally).
+- Subject-level learned removal detection fell slightly (0.28 -> 0.23 per copy; 12 -> 9 subjects): the min-p
+  calibration is less conservative but the null distribution of min-p now includes more extreme training subjects.
+- Edge-presence family still 0 everywhere; thinning and displacement remain near baseline for all methods.
+- Edge 11 (midline, p 0.62, longest target 19.9 mm) removal is not detected element-wise by learned (0/12) but is by
+  centroid (4/12): learned population maps its end nodes elsewhere (not investigated).
