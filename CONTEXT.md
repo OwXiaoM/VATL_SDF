@@ -763,6 +763,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47050 | Deviation statistics, full run: null 100 (LOO, refitted), calibration 50, validation 20; decoder / learned / centroid; uniform + age sigma 7/5/10 (CPU) | 16 CPU, 240 GB, frozen 9cfce5c | sdf_only/analysis/20261101_deviation | 0 | COMPLETED 17.5 min, 28 GB; superseded by v2 (Holm/BH resolution issue, see Step 1 results) |
 | 47054 | Deviation statistics v2: as 47050 + family min-p calibrated on the null + population-referenced element p-values (BH) (CPU) | 16 CPU, frozen 51b2576 | sdf_only/analysis/20261101_deviation_v2 | 0 | COMPLETED 51 min (calibration 39 min on a shared node) |
 | 47058-47077 | Null extension: test-time refits of 200 more training subjects (configs/evaluation/deviation_sets_null_extra.json, seed 0), chunks of 10 (QOS normal/dev alternating) | 20 x 1 L40S, frozen 2389528 | sdf_only/analysis/20261101_dev_refit_null_extra | | submitted |
+| 47081 | Perturbation manifest (CoW centre, targets, eligibility, 332 copies) (CPU, QOS dev) | 4 CPU, frozen fad1ebb | sdf_only/analysis/20261101_perturbation/manifest.json | 0 | COMPLETED 10 s |
+| 47082-47115 | Perturbed-copy refits (34 chunks of 10, manifest priority order: removal, thin, displace 3, displace 5; in-memory copies regenerated with commit 007f163) | 34 x 1 L40S, QOS normal/dev, frozen 007f163 | sdf_only/analysis/20261101_perturbation/refit | | submitted (null-extension refits set to nice 1000 so these run first) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1677,3 +1679,21 @@ False-positive rates (fraction of subjects with p <= 0.05; nominal 0.05). Facts:
 Hypotheses: (1) element-level sensitivity for presence is structurally limited by population variability (p_edge <=
 0.92); connectivity and radius are the element families that can reach significance. (2) A larger null (300)
 reduces ties and makes the subject-level family test less conservative (being tested).
+
+### Perturbation sensitivity test: setup (screening; 20 validation subjects)
+
+- CoW centre (learned r3mm_tau0.1 population, graph atlas 20261101_l6full_graph_atlas, identical to the deviation
+  learned population): length-weighted centroid of population edges with mean c_3 >= 0.5 and mean z <= the median of
+  edge mean z (-20.9 mm): edges 4, 6, 11, 14 -> centre (-1.1, 7.8, -26.9) mm (template frame).
+- Targets (p_edge >= 0.5, whole path within 25 mm of the centre): edge 4 (p 0.92, 9.8 mm), 5 (0.57, 16.0 mm),
+  6 (0.77, 3.2 mm; adjacent to edge 4), 7 (0.52, 8.9 mm), 11 (0.62, 19.9 mm; midline, descending = basilar-like),
+  14 (0.91, 9.7 mm; mirror of edge 4). No vessel names are assigned (data-defined).
+- Eligibility (present + matched segment median graph radius >= 1.5 mm): all 20 validation subjects have >= 2 eligible
+  edges (2-6, median 4); per edge 4: 18, 14: 18, 6: 17, 11: 12, 5: 9, 7: 9 subjects (3 present edge-5 cases excluded,
+  radius 1.39 mm). 83 (subject, edge) pairs x 4 perturbations = 332 copies.
+- Implementation facts: matched segment = subject large-vessel graph edges with >= 50% of their samples within 3 mm of
+  the population edge path (refitted unperturbed transform); attachments = junctions with unmatched large edges;
+  removal clears a tube r_local + 1 mm including end caps (example IXI037 edge 14: 606 vessel voxels removed);
+  thinning / displacement keep the original vessel within r + 1 mm of attachments; displacement tapered over 3 mm
+  from attachments (realised max node shift 2.7-3.0 mm for 3 mm, 4.4-5.0 mm for 5 mm). Small side branches
+  attached inside a segment are cut at their roots in the mask (graph edges stay attached).
