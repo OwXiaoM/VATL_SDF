@@ -740,6 +740,20 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46863 | Probabilistic atlas merge + held-out evaluation, step 59,760 (CPU) | 16 CPU, frozen a8b603c | sdf_only/analysis/20261031_a4full_patlas_final | 0 | COMPLETED 1 min |
 | 46864 | gen_long: test-time fit 10 + 98 epochs (3x budget, horizon 108), test only, step 59,760 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_gen_final_long | 0.74 | COMPLETED 44 min |
 | 46865 | inspect_run on the full A4 run (reference steps 20k–35k) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_inspect_run | 0.01 | COMPLETED 32 s |
+| 46885 | Scale-gap probe: per-subject SDF L1 with latent/condition swaps, all checkpoints of pilot A4 and full A4, 100 shared subjects | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_probe | 0.07 | COMPLETED 4 min |
+| 46886 | inspect_run on the Step 2 A4 pilot | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_inspect_pilot | 0.01 | COMPLETED |
+| 46887 | Test-time fitting with the PILOT A4 network (5 test + its 6 diagnostic subjects, 10 + 30 epochs) | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_gen_pilot | | running |
+| 46889 | Vessel-graph atlas step 1 on full A4 final (CPU) | 16 CPU, frozen 08c27c1 | sdf_only/analysis/20261101_a4full_graph_atlas | 0 | COMPLETED 2.5 min |
+| 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | | running |
+| 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | | running |
+| 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | | pending |
+| 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
+| 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
+| 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | | running |
+| 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | | pending |
+| 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | | pending |
+| 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
+| 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | running |
 | 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | 0.06 | FAILED 3 min: CUDA OOM, caused by the smoke setting --steps-per-epoch 5 (50k points per subject per step; real setting 50 -> 5k) |
 | 46844 | Same smoke, --steps-per-epoch 50 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot_2 | 0.09 | COMPLETED 5.5 min, SMOKE_OK (shard: 100 subjects at 4 mm in 17 s) |
 | (auto) | Watcher (login-node poller, scratchpad autosubmit.sh, frozen a8b603c): at step 16,600 -> gen_align + 4 shards + merge; at step 59,760 -> gen_final + 4 shards + merge, gen_long, inspect_run (afterany 46841) | | sdf_only/analysis/20261031_a4full_* | | done: submitted 22:35 and 00:57 (first launch failed: scratchpad not executable; rerun with bash) |
@@ -1248,3 +1262,57 @@ parallel; merge 1 min); gen_long (extra) ended 02:02. Total 4 h 16 from submissi
 Probabilistic training objective: not proposed at this stage. The failure that dominates is individual fit quality
 at full scale (Dice 0.39 vs 0.92 in the pilot), which a variance head or variational latents would not address; the
 inference-time atlas already gives connected, positively skilled maps with learned alignment.
+
+### User decisions 2026-11-01: Priority 1 scale gap, Priority 2 probabilistic atlas, graph atlases
+
+Priority 1: explain and fix the pilot (Dice 0.92) -> full-scale (0.39) fit gap; diagnose from existing outputs first,
+then one-factor screening ablations measured by 0c on the same 6 training subjects and test-time fitting on the 5
+test subjects; recommend and (if promising) run a full-scale recipe with recurrence >= ~0.41–0.44. Priority 2:
+probabilistic atlas as the main deliverable (calibration, coverage, centreline radius 2/3 mm, mid-probability
+over-confidence); no training-objective change (proposal first if needed). Additional (CPU, inference only):
+probabilistic vessel-graph atlas (centreline maps 2/3 mm, population graph with edge occurrence; node/edge atlas if
+step 1 works); connectivity atlas (graph vs mask criteria, no repair) and radius atlas (-SDF primary). Monitor MoE
+layer-1 gate entropy in all runs.
+
+### Scale-gap diagnosis (inference only on existing outputs; screening evidence)
+
+Factors that differ between the Step 2 A4 pilot and the full A4 run, and what the existing evidence says:
+
+| factor | pilot | full | evidence |
+| --- | --- | --- | --- |
+| subjects | 100 | 497 | favoured, through memorization (below) |
+| subjects per optimizer step / GPUs (DDP) | 5 / 1 | 15 / 3 | not ruled out by existing data; ablation sg_s100g3 |
+| per-subject updates | 2000 | 1800 | ruled out as main cause: at matched updates (epoch 20 = 1000) pilot 0.060 vs full 0.107 |
+| total optimizer steps | 40k | 59,760 | ruled out (full has more network steps) |
+| LR schedule | cosine over 40 epochs | over 36 epochs | ruled out (same base / eta_min, same fraction of run at matched epochs) |
+| alignment stage | 10 epochs = 10k steps | 10 epochs = 16.6k steps | ruled out: alignment losses equal at matched epochs (align_sdf 0.207 vs 0.210 at epoch 9), refinement starts at the same SDF L1 (0.159 vs 0.155) and stays equal to epoch 12 (0.123 vs 0.121) |
+| MoE routing | layer-1 entropy 1.06 -> 0.68 | 0.92 -> 0.55 | same trend in both; not distinguishing |
+
+Facts:
+- Training SDF L1 per epoch (pilot / full): epoch 12 0.123 / 0.121, 15 0.098 / 0.113, 20 0.060 / 0.107, 30 0.032 / 0.099,
+  final 0.024 / 0.092. Latent norm median: pilot 0.85 -> 0.77 (shrinks while the loss falls), full 0.93 -> 1.24.
+- Per-subject probe (100 shared subjects, median normalized-SDF L1 at epoch 20 / 30 / final):
+  pilot own 0.103 / 0.044 / 0.029; latent zeroed 0.255 / 0.281 / 0.289; latent swapped 0.327 / 0.366 / 0.377;
+  age/sex condition swapped (own latent) 0.268 / 0.303 / 0.311.
+  full own 0.161 / 0.137 / 0.124; latent zeroed 0.210 / 0.228 / 0.236; latent swapped 0.245 / 0.263 / 0.276;
+  condition swapped 0.187 / 0.185 / 0.191. Every one of the 100 subjects fits worse at full scale (epoch 30).
+  Age + sex is unique for all 100 pilot subjects (468 of 497 at full scale).
+- Pilot network, test-time fitting of the 5 test subjects (training per-subject budget): Dice 0.162 / 0.331 / 0.361 /
+  0.380 / 0.384 at test-time epoch 10 / 15 / 20 / 30 / 40; MAE 1.19 mm; volume ratio 0.49 — versus 0.921 on its own
+  training subjects. Full A4 network on the same test subjects: 0.373 (volume ratio 2.5).
+- Conclusion (fact at this scale): the pilot's training fit is memorization. Its network uses the age/sex condition
+  (a unique key for 100 subjects) together with the latent to store each subject in the shared weights; swapping
+  only the condition destroys the fit as much as removing the latent. That capacity does not transfer to new
+  subjects (test Dice 0.38, the same as the full model). At 497 subjects the network cannot memorize, so training
+  and test fits agree (0.39 / 0.37). The 'gap' is therefore not a loss of generalizable fit quality at scale; the
+  generalizable fit quality is ~0.37–0.40 in both.
+- Consequence for Priority 1: recovering 0.92 on training subjects at full scale would require memorization, which
+  would not help new subjects. The ablations are therefore ranked by TEST-time fit (5 test subjects) and trained fits
+  on the 6 fixed training subjects together; sg_s100nocond tests the condition route causally.
+
+Scale-gap screening ablations (submitted; frozen 73d5426): reference sg_r20 = A4 on 497 subjects, 20 epochs (10
+alignment + 10 refinement), 3 GPUs, horizon = run. One factor each vs sg_r20: latent grid 6^3 (sg_latent6), hidden
+width 1536 (sg_width1536), 40 epochs (sg_r40), latent lr 2e-3 (sg_latentlr). Subject series (1 GPU, 20 epochs,
+the 6 diagnostic subjects always included via data.subset_include): 100 (sg_s100), 250 (sg_s250); 100 with the
+condition zeroed (sg_s100nocond); 100 on 3 GPUs = 15 subjects per step (sg_s100g3). All measured with post_ablation.sh
+(0c on the 6 fixed subjects, recurrence, test-time fitting with --train-subjects fixed, inspect_run incl. MoE).
