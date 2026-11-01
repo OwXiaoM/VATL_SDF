@@ -752,7 +752,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | 0c 0.299; test 0.353; refit 0.385; rec3 0.369/0.452; MoE1 0.667 | done (train 2 h 14, post 40 min) |
-| 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
+| 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | 0c 0.629; test 0.274; refit 0.554; rec3 0.24/0.36; MoE1 0.92 | done (train 51 min, post 40 min) |
 | 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | | running (started 15:12) |
 | (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | armed |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
@@ -1380,6 +1380,16 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   entropy 0.597; latent median 1.26. Consistent with full A4 at 36 epochs (test 0.373, recurrence 0.407/0.437).
   => (fact) doubling the length gives +0.05 test Dice and +0.04-0.06 recurrence; ~5x smaller fit effect than latent
   6^3 at 20 epochs. Recurrence rises with training length (0.375 -> 0.417), not with latent size (0.367).
+- sg_s100g3 (job 46906/46907; 100 subj incl. the 6 on 3 GPUs = 15 subj/step, 6,800 steps, 20 epochs; train 51 min, post
+  40 min): 0c Dice 0.629, MAE 0.90, volume 1.43, component ratio 0.92; test Dice 0.274 / MAE 1.56 / volume 2.93 / comp
+  1.6; train_refit 0.554; recurrence 3 mm train 0.242, test 0.360; MoE layer-1 entropy 0.92.
+  => (fact) vs sg_s100 (same subjects, same ~1000 updates per subject, 5 subj/step, 20k steps): test fit 0.394 -> 0.274
+  with 3.4x fewer network steps; trained fit stays high (0.63; memorization). Test-time fit across runs at matched
+  per-subject updates orders with the number of network steps: s100g3 6.8k -> 0.274, r20 33.2k (497 subj) -> 0.318,
+  s250 50k (5/step) -> 0.353, s100 20k -> 0.394 (hypothesis: the shared prior needs network steps that scale with
+  subjects; per-subject updates alone do not set it).
+
+Scale-gap screening: all nine one-factor ablations done (2026-11-01 ~16:30). Summary in the final report.
 
 Recommended-recipe candidate (decided 2026-11-01 after sg_latent6, before sg_r40 / sg_latentlr / sg_s100g3 finished):
 config 21_a4_full_latent6 = 13_a4_full with ONE change, latent grid 256x6^3 (36 epochs, 3 GPUs, run horizon), so it is
