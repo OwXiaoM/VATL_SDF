@@ -172,6 +172,21 @@ class FittingTests(unittest.TestCase):
         self.assertEqual(set(attr['populations']['r2mm_tau0.5']['evaluation']),
                          {'test/learned', 'test/centroid_translated', 'train_loo/learned'})
         self.assertTrue((attr_out / 'Radius_sdf_median.nii.gz').is_file())
+        from vatl_sdf import atlas_calibration
+        cal_out = Path(self.temp.name) / 'atlas_calibration'
+        with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--atlas', str(atlas),
+                                             '--calibration-fitted', str(out / 'fitted_train_refit.pt'),
+                                             '--test-fitted', str(out / 'fitted_test.pt'), '--output', str(cal_out),
+                                             '--sigmas-mm', '0', '1', '--methods', 'none', 'isotonic', '--workers', '1']):
+            atlas_calibration.main()
+        cal = json.loads((cal_out / 'atlas_calibration.json').read_text())
+        self.assertEqual(len(cal['results']), 4)
+        self.assertEqual(set(cal['results'][0]['test']), {'roi', 'fov', 'centreline_coverage_median'})
+        with self.assertRaises(ValueError):  # test subjects as calibration set are rejected
+            with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--atlas', str(atlas),
+                                                 '--calibration-fitted', str(out / 'fitted_test.pt'),
+                                                 '--test-fitted', str(out / 'fitted_test.pt'), '--output', str(cal_out) + '_b']):
+                atlas_calibration.main()
         with self.assertRaises(ValueError):  # shards must cover every subject exactly once
             (shards / 'shard_00_of_02.npz').unlink()  # the shard holding the only training subject
             with mock.patch.object(sys, 'argv', ['x', 'merge', '--checkpoint', str(self.checkpoint_path), '--shards', str(shards),
@@ -180,6 +195,19 @@ class FittingTests(unittest.TestCase):
 
 
 class MetricTests(unittest.TestCase):
+    def test_recalibrator(self):
+        from vatl_sdf.atlas_calibration import Recalibrator, logit_feature
+        rng = np.random.default_rng(0)
+        p = rng.uniform(0.01, 0.6, 200000)
+        y = rng.uniform(size=p.size) < 0.5 * p          # observed frequency = half the atlas probability
+        for method in ('platt', 'isotonic'):
+            r = Recalibrator(method, 100).fit(p, y)
+            q = r(np.array([0.1, 0.4]))
+            self.assertTrue(np.allclose(q, [0.05, 0.2], atol=0.02), (method, q))
+            self.assertTrue(np.all(np.diff(r(np.linspace(0, 1, 50))) >= -1e-12))   # monotone
+        self.assertIs(Recalibrator('none', 100)(p), p)
+        self.assertAlmostEqual(float(logit_feature(np.array([0.5]), 100)[0]), 0.0)
+
     def test_recurrence_against_matches_recurrence_and_excludes_self(self):
         rng = np.random.default_rng(0)
         clouds = [rng.normal(size=(50, 3)) * 5 for _ in range(4)]
