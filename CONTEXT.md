@@ -731,10 +731,18 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46767/46768 | FULL 01b, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/01b_centerline_sdf_pointweight_full | 16.2 | COMPLETED 5 h 23 (checkpoints to step 99600 = epoch 60); continuation: stop guard, no updates |
 | 46769/46770 | FULL 07a, stop_after_epoch=59 (+continuation) | 3 L40S, frozen e7fe991 | sdf_only/runs/07a_field_centerline_distance_full | 15.3 | COMPLETED 5 h 07 (to step 99600); continuation: stop guard, no updates |
 | 46829–46832 | 0c on full 01b / 07a, epochs 20 and 60 (steps 33200/99600) | 1 L40S each, frozen b6ac683 | sdf_only/analysis/0c_<01b,07a>_full_epoch<20,60> | 0.8 | COMPLETED (12 min each) |
-| 46841 | FULL A4 (13_a4_full): 497 subj, 36 epochs = 59,760 steps, run horizon, alignment 10 epochs | 3 L40S, frozen 0ac21bc | sdf_only/runs/13_a4_full | | running (submitted 2026-10-31 21:46) |
+| 46841 | FULL A4 (13_a4_full): 497 subj, 36 epochs = 59,760 steps, run horizon, alignment 10 epochs | 3 L40S, frozen 0ac21bc | sdf_only/runs/13_a4_full | 9.5 | COMPLETED 3 h 11 (21:46 -> 00:57); horizon 36 epochs |
+| 46847 | gen_align: test-time ALIGNMENT-only fit (10 epochs, horizon 36) on step 16,600; 5 test + 6 train_refit | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_gen_align | 0.65 | COMPLETED 39 min (during training) |
+| 46848–46851 | Probabilistic atlas shards (4 x 124 subjects, 1 mm) on step 16,600 | 1 L40S each, frozen a8b603c | sdf_only/analysis/20261031_a4full_patlas_shards_align | 1.4 | COMPLETED 20–22 min each |
+| 46852 | Probabilistic atlas merge + held-out evaluation, step 16,600 (CPU) | 16 CPU, frozen a8b603c | sdf_only/analysis/20261031_a4full_patlas_align | 0 | COMPLETED 1 min |
+| 46858 | gen_final: test-time fit 10 + 26 epochs (training budget) on step 59,760 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_gen_final | 0.93 | COMPLETED 56 min |
+| 46859–46862 | Probabilistic atlas shards, step 59,760 | 1 L40S each, frozen a8b603c | sdf_only/analysis/20261031_a4full_patlas_shards_final | 1.3 | COMPLETED 20–21 min each |
+| 46863 | Probabilistic atlas merge + held-out evaluation, step 59,760 (CPU) | 16 CPU, frozen a8b603c | sdf_only/analysis/20261031_a4full_patlas_final | 0 | COMPLETED 1 min |
+| 46864 | gen_long: test-time fit 10 + 98 epochs (3x budget, horizon 108), test only, step 59,760 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_gen_final_long | 0.74 | COMPLETED 44 min |
+| 46865 | inspect_run on the full A4 run (reference steps 20k–35k) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_inspect_run | 0.01 | COMPLETED 32 s |
 | 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | 0.06 | FAILED 3 min: CUDA OOM, caused by the smoke setting --steps-per-epoch 5 (50k points per subject per step; real setting 50 -> 5k) |
 | 46844 | Same smoke, --steps-per-epoch 50 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot_2 | 0.09 | COMPLETED 5.5 min, SMOKE_OK (shard: 100 subjects at 4 mm in 17 s) |
-| (auto) | Watcher (login-node poller, scratchpad autosubmit.sh, frozen a8b603c): at step 16,600 -> gen_align + 4 shards + merge; at step 59,760 -> gen_final + 4 shards + merge, gen_long, inspect_run (afterany 46841) | | sdf_only/analysis/20261031_a4full_* | | armed |
+| (auto) | Watcher (login-node poller, scratchpad autosubmit.sh, frozen a8b603c): at step 16,600 -> gen_align + 4 shards + merge; at step 59,760 -> gen_final + 4 shards + merge, gen_long, inspect_run (afterany 46841) | | sdf_only/analysis/20261031_a4full_* | | done: submitted 22:35 and 00:57 (first launch failed: scratchpad not executable; rerun with bash) |
 | 46354 | Phase 5 rendering, 20 subjects (CPU) | moved to h200 partition | sdf_only/analysis/20261030_phase5_render | 0 | COMPLETED |
 
 Frozen-code practice: queued jobs set `VATL_CODE_DIR=/users/zhangx/VATL_SDF_frozen/<commit>`
@@ -1148,3 +1156,95 @@ objective unchanged. No per-job confirmation; update CONTEXT and commit after ea
   0.1/0.25/0.5, held-out Brier / Brier skill / smoothed log-likelihood / reliability / ECE over the subject FOV
   and over a vessel ROI, coverage of held-out large-vessel centrelines; learned vs centroid-only frame).
 - analysis/divergence/inspect_run.py now reads normalized/affine transforms through maps_mm.
+
+### Full A4 results (screening evidence: one seed, 6 training diagnostic subjects, 5 test subjects)
+
+Stability (inspect_run, losses.jsonl): no divergence. SDF L1 (1k-step means) 0.151 (step 17k, start of refinement)
+-> 0.106 (35k) -> 0.0925 (59k), monotonic (the baseline's best was 0.111). Latent norm median 1.25 / 1.26 / 1.24 at
+epochs 20/30/36 (plateau). Adam second-moment max of the network group falls 7.9 -> 0.11. Transforms: rotation
+5.4 -> 5.7 deg, translation 5.9 -> 6.2 mm, scale p95 1.057 -> 1.044 (almost all motion in the alignment stage).
+Watch item (fact): MoE layer-1 gate entropy 0.92 -> 0.64 -> 0.58 -> 0.55 and the MoE balance loss 0.006 -> 0.012
+(routing concentrating slowly; importance max stays 0.28 of 4 experts).
+
+Individual fits, 6 training diagnostic subjects (0c metrics, medians, x1 grid):
+
+| | Dice | band MAE mm | volume ratio | comp ratio >=10 | centreline inside (given ref) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Step 2 A4 pilot (100 subj; its own 6 subjects) | 0.921 | 0.54 | 1.10 | 1.39 | 0.96 |
+| full A4, trained latents, final | 0.393 | 1.39 | 1.52 | 11.3 | 0.35 |
+| full A4, end of alignment (template only, latent 0) | 0.135 | 2.31 | 0.41 | 0.80 | 0.04 |
+| full 07a epoch 60 (old horizon) | 0.294 | 1.47 | 1.80 | 8.4 | 0.30 |
+| full baseline epoch 60 | 0.34 | 1.61 | 1.44 | 7.1 | – |
+
+- Fact: at full scale the A4 recipe is still Case 1 (Dice 0.39, MAE 1.4 mm, 11x reference components); better Dice
+  than full 07a / baseline, more fragmented. The pilot -> full gap (0.92 -> 0.39) is the dominant effect.
+- Hypothesis (untested): per-subject capacity/optimisation at 5x the subjects (497 vs 100; 1800 vs 2000 updates per
+  subject; 15 vs 5 subjects per step) rather than the recipe.
+
+Generalization (test-time fitting; network frozen; test = first 5 YAML val IDs, none in training):
+
+| test-time epoch (per-subject updates) | test Dice | test MAE | test vol | test comp | train_refit Dice | train_refit MAE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10, end of alignment (500) | 0.163 | 1.70 | 1.68 | 12.3 | 0.118 | 1.79 |
+| 12 (600) | 0.294 | 1.68 | 2.55 | 11.1 | 0.308 | 1.70 |
+| 20 (1000) | 0.356 | 1.65 | 2.56 | 10.0 | 0.371 | 1.67 |
+| 36 = training budget (1800) | 0.373 | 1.64 | 2.54 | 10.2 | 0.387 | 1.66 |
+| 3x budget, 108 (5400) | 0.404 | 1.63 | 2.60 | 9.0 | – | – |
+
+- Fact: train-test gap at the training budget: Dice 0.373 (test) vs 0.393 (trained) / 0.387 (train subjects refitted
+  by the same procedure); MAE 1.64 vs 1.39 / 1.66; volume ratio 2.5 vs 1.5 / 2.6. With the procedure matched
+  (train_refit) the gap is ~0; the MAE/volume difference to the trained fits comes from test-time fitting (latents
+  of a frozen network inflate the vessels), not from the subjects being unseen. Dice rises slowly with budget
+  (0.37 -> 0.40 at 3x).
+- Alignment generalization, large-vessel recurrence (references: 497 training subjects, trained transforms; train
+  queries: first 100 training subjects; medians, 1/2/3 mm):
+  final checkpoint: train vs train 0.046/0.190/0.407; test vs train 0.050/0.207/0.437 (per subject 3 mm 0.32–0.55);
+  train_refit vs train 0.032/0.145/0.335; centroid-only control: train 0.135, test 0.153 (3 mm).
+  end-of-alignment checkpoint (alignment-only test fit): train 0.327, test 0.394, train_refit 0.283 (3 mm).
+- Fact: test subjects align to the training cohort as well as training subjects among themselves (0.44 vs 0.41
+  at 3 mm, ~3x the centroid control). Refitted training subjects reach 0.335 < their trained 0.41
+  (hypothesis: trained transforms co-adapted with the template over the whole run; 5 vs 6 subjects, so the
+  test/train_refit difference is within subject-to-subject spread, per-subject range 0.32–0.55).
+
+Probabilistic atlas (1 mm template grid, 497 subjects, uniform weights; tau 0.5 mm; centreline radius 1 mm):
+
+| map (final) | >= 0.1: vox / comps / largest | >= 0.25 | >= 0.5 |
+| --- | --- | --- | --- |
+| occupancy p | 38.1 k / 108 / 0.98 | 10.4 k / 3 / 0.91 | 1.7 k / 6 / 0.46 |
+| soft occupancy | 135.8 k / 13 / 1.00 | 12.4 k / 5 / 0.91 | 1.4 k / 5 / 0.50 |
+| centreline (1 mm) | 1.1 k / 4 / 0.46 | 0 | 0 |
+| end of alignment, occupancy | 19.2 k / 5 / 0.81 | 8.4 k / 6 / 0.89 | 2.3 k / 6 / 0.47 |
+
+Deterministic zero-level atlases for comparison: hundreds of components (full 07a e60 833, baseline e60 689).
+
+Held-out calibration (5 test subjects pooled; learned = test-time fitted affine; control = centroid translation):
+
+| final checkpoint | Brier skill FOV | Brier skill ROI | loglik/voxel FOV (constant) | ECE ROI |
+| --- | ---: | ---: | --- | ---: |
+| occupancy, learned | +0.075 | +0.072 | -0.0134 (-0.0197) | 0.0078 |
+| occupancy, centroid control | -0.037 | -0.040 | -0.0148 (-0.0194) | 0.0092 |
+| soft tau 0.5, learned | -0.056 | -0.020 | -0.0168 (-0.0229) | 0.024 |
+| soft tau 0.5, centroid control | -0.162 | -0.122 | -0.0179 (-0.0225) | 0.024 |
+
+Reliability (occupancy, learned, ROI): over-confident at low-mid p (bin 0.1–0.2: mean p 0.137, observed 0.074;
+0.2–0.3: 0.245 vs 0.154; 0.3–0.4: 0.344 vs 0.230), calibrated at 0.5–0.8 (0.544/0.494, 0.646/0.636, 0.733/0.698).
+Coverage of test large-vessel centreline points (learned / centroid control): occupancy >= 0.1 85% / 53%,
+>= 0.25 63% / 29%, >= 0.5 27% / 10%; centreline map >= 0.1 24% / 7%.
+- Facts: the thresholded probabilistic atlas is connected at 0.25 (3 components, largest 0.91) where the
+  deterministic atlases had hundreds; it predicts held-out vessels better than a constant only with learned
+  alignment (Brier skill +0.07 vs -0.04 for centroid-only); the soft version is worse than the hard frequency
+  (sigmoid with tau 0.5 mm spreads mass outside vessels); no voxel reaches centreline probability 0.25 at 1 mm.
+- Hypotheses: low-mid over-confidence reflects inflated individual decodings (trained volume ratio 1.5); the empty
+  centreline map at 1 mm reflects residual misalignment of several mm (1 mm recurrence ~0.05).
+- ROI caveat: the ROI (3-voxel dilation of occupancy > 0 or subject vessel) depends on the atlas, so ROI numbers are
+  not comparable between the two checkpoints; FOV numbers are.
+- End-of-alignment checkpoint (latents 0, decodings differ only by age/sex): occupancy Brier skill FOV +0.060
+  (control -0.018), coverage >= 0.25 51% (control 30%).
+
+Wall-clock: training 3 h 11 (submitted 21:46, ended 00:57). End-of-alignment evaluations ran during training
+(22:35 -> 23:18). Final evaluations 00:57 -> 01:55 (gen_final 56 min was the critical path; shards 20 min in
+parallel; merge 1 min); gen_long (extra) ended 02:02. Total 4 h 16 from submission to last result (training 75%).
+
+Probabilistic training objective: not proposed at this stage. The failure that dominates is individual fit quality
+at full scale (Dice 0.39 vs 0.92 in the pilot), which a variance head or variational latents would not address; the
+inference-time atlas already gives connected, positively skilled maps with learned alignment.
