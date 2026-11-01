@@ -116,6 +116,7 @@ def main():
     p.add_argument('--final-factors', type=int, nargs='+', default=[1, 2])
     p.add_argument('--recurrence-train-queries', type=int, default=100, help='training subjects used as queries')
     p.add_argument('--skip-train-refit', action='store_true')
+    p.add_argument('--train-subjects', nargs='*', help='training diagnostic IDs (default: age/sex quantiles of the training set)')
     p.add_argument('--device', default='cuda'); p.add_argument('--workers', type=int, default=8)
     p.add_argument('--min-radius-mm', type=float, default=1.2)
     a = p.parse_args()
@@ -126,7 +127,9 @@ def main():
     a.horizon_epochs = a.horizon_epochs or int(checkpoint['scheduler']['T_max'])
     a.steps_per_epoch = a.steps_per_epoch or training_steps_per_epoch(config)
     tests = test_frame(config, frame.subject_id.tolist(), a.manifest, a.num_test)
-    diag_ids = select_subjects(frame)
+    diag_ids = a.train_subjects or select_subjects(frame)
+    if set(diag_ids) - set(frame.subject_id):
+        raise ValueError('--train-subjects must be training subjects of this checkpoint')
     diag = frame.set_index('subject_id', drop=False).loc[diag_ids].reset_index(drop=True)
     settings = {k: v for k, v in vars(a).items()}
     summary = {'checkpoint': str(Path(a.checkpoint).resolve()), 'step': checkpoint.get('step'),
