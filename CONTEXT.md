@@ -753,7 +753,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | | pending |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | | pending |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
-| 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | running |
+| 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
+| 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
 | 46843 | Smoke: generalization + probabilistic atlas on the Step 2 A4 pilot checkpoint (tiny budgets, 4 mm grid) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot | 0.06 | FAILED 3 min: CUDA OOM, caused by the smoke setting --steps-per-epoch 5 (50k points per subject per step; real setting 50 -> 5k) |
 | 46844 | Same smoke, --steps-per-epoch 50 | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_eval_smoke_a4pilot_2 | 0.09 | COMPLETED 5.5 min, SMOKE_OK (shard: 100 subjects at 4 mm in 17 s) |
 | (auto) | Watcher (login-node poller, scratchpad autosubmit.sh, frozen a8b603c): at step 16,600 -> gen_align + 4 shards + merge; at step 59,760 -> gen_final + 4 shards + merge, gen_long, inspect_run (afterany 46841) | | sdf_only/analysis/20261031_a4full_* | | done: submitted 22:35 and 00:57 (first launch failed: scratchpad not executable; rerun with bash) |
@@ -1342,3 +1343,49 @@ Held-out evaluation, medians (test learned / test centroid-only / train LOO lear
   at 2/3 mm it reaches 0.62/0.89. The population graph is small (13–16 edges, 0.3 m of centreline): only the most
   recurrent large vessels survive the threshold. Step (2) (node/edge atlas) not started yet; decision after the
   connectivity/radius atlas.
+
+### Connectivity, radius and node/edge atlases on full A4 final (jobs 46908/46909, CPU; screening evidence)
+
+vatl_sdf/vessel_attribute_atlas.py (commits 9d8fd5f, 1af803e; tests/test_vessel_attribute_atlas.py with synthetic
+tubes: graph-connected across a mask gap, mask-connected with a missing graph edge, radius = -SDF). Population graphs
+from the step-1 graph atlas (r 2 mm and 3 mm, tau 0.1). Node presence = large-vessel centreline within r; graph
+criterion = path in the subject's full graph (no repair) <= 3 x straight-line distance (min 2 mm); mask criterion =
+same 26-component of SDF < 0 (anchor voxel or nearest vessel voxel within 1 mm). Train = first 100 subjects LOO.
+
+Large-vessel selection (per-subject medians, 497 subjects): used = graph radius >= 1.2 mm at both edge endpoints.
+Of 14,924 densified centreline points, 884 are graph-selected and 1059 would be selected by -SDF >= 1.2 mm; Jaccard
+0.71. Graph-selected points are never outside the mask; -SDF is 0.15 mm below the graph radius on them (median).
+80% of centreline points (12,003) have floor graph radius (0.8 mm); their -SDF median is 0.50 mm and 85% lie inside
+the mask. Floor-radius points enter the -SDF selection in only 0.4% of cases.
+
+Connectivity (per population edge; medians over edges, 2 mm / 3 mm populations):
+- P(both nodes present) 0.10 / 0.25 (per edge 0.04–0.21 / 0.06–0.63).
+- P(connected | both): graph 0.98 / 0.97, mask 1.00 / 1.00. P(connected) graph 0.10 / 0.23, mask 0.10 / 0.23.
+- Mask-connected but graph-disconnected (given both): 0.01 / 0.02 median; max 0.08 (2 mm) and 0.36 (one 3 mm edge,
+  n = 118). Graph-connected but mask-disconnected: 0 for every edge.
+- Facts: at the scale of the population edges (large vessels, ~20 mm edges) the two criteria agree for >= 92% of
+  subjects on every edge except one; the graph fragmentation documented in Phase 0b (51 components per subject)
+  sits mostly in small vessels and barely affects these large-vessel edges. Conditional connectivity is near 1, so
+  its likelihood is uninformative (log-lik given both ~ -0.01 to -0.06 for test and train alike); the informative
+  quantity is presence.
+- Held-out vs LOO (3 mm): edges with both nodes present per subject 7 (test learned) vs 4 (train LOO) vs 1 (test
+  centroid-only); unconditional log-likelihood graph -0.46 / -0.46, mask -0.45 / -0.49; coverage of observed
+  connected edges by P(connected) >= 0.5: graph 0.25 / 0.25, mask 0.43 / 0.38.
+
+Radius (-SDF primary, graph radius secondary; scale det(A)^(1/3) median 1.00, p5–p95 0.96–1.04):
+- Population-node radius medians 1.2–2.3 mm (-SDF), IQR 0.15–0.6 mm, 50–425 contributing subjects per node at
+  3 mm; graph radius 0.1–0.2 mm larger. Voxel maps: 38 k voxels, 3.9 k with >= 10 subjects
+  (Radius_{sdf,sdf_scaled,graph}_{median,q25,q75}.nii.gz, Radius_subject_count.nii.gz).
+- Held-out error (3 mm; test learned / train LOO): -SDF abs error 0.17 / 0.14 mm, |robust z| 0.69 / 0.64, fraction of
+  nodes within the 5–95% band 1.00 / 0.91; scaled -SDF 0.13 / 0.14 mm; graph radius 0.11 / 0.11 mm. At 2 mm the test
+  -SDF |z| is 1.35 vs 0.69 (fewer matched nodes, n = 5 subjects). Centroid-only control matches fewer nodes
+  (different node sets), so its radius errors are not like-for-like.
+- Not done: age weighting of the radius statistics (option not implemented).
+
+Node/edge atlas (step 2, built from the same anchors): node occurrence 0.10–0.86 (3 mm), mean anchor position and
+covariance per node, edge connection probability for both criteria. LIMITATION (fact): the node anchor is by
+construction the nearest large-vessel point within r of the population node, so the positional spread is capped by
+r (RMS 1.3 mm at 2 mm, 1.9 mm at 3 mm) and 'inside the 95% ellipsoid' is trivially 1.0 for test and train. A real
+positional covariance needs node correspondence that is not defined by the radius window (e.g. junction matching in
+each subject's graph); not implemented. Median anchor distance to the node mean: test learned 1.79 mm, train LOO
+1.73 mm, test centroid-only 2.21 mm (3 mm population).
