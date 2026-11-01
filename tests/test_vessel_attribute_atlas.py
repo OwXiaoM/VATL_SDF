@@ -8,7 +8,8 @@ import networkx as nx
 import nibabel as nib
 import numpy as np
 
-from vatl_sdf.vessel_attribute_atlas import connectivity_stats, radius_errors, score_connectivity, subject_attributes
+from vatl_sdf.vessel_attribute_atlas import (connectivity_stats, node_atlas, position_errors, radius_errors, score_connectivity,
+                                             subject_attributes)
 
 SHAPE = (30, 13, 13)
 
@@ -76,6 +77,8 @@ class SubjectAttributeTests(unittest.TestCase):
         np.testing.assert_allclose(node_r[:, 1], 1.5, atol=1e-6)      # graph radius
         self.assertEqual(result['selection']['graph_selected'], result['selection']['points'])
         self.assertAlmostEqual(result['scale'], 1.0)
+        anchors = result['populations']['r2']['anchor_t']           # template = world - image centre (identity map)
+        np.testing.assert_allclose(anchors[:, 1:], np.tile([6., 6.] - np.asarray(SHAPE[1:], float) / 2., (4, 1)), atol=1e-6)
 
     def test_stats_and_scores(self):
         both = np.array([[True, True], [True, False], [False, False]])
@@ -89,6 +92,20 @@ class SubjectAttributeTests(unittest.TestCase):
         self.assertEqual(score['mask']['edges_connected'], 2)
         errors = radius_errors(np.array([2.0]), np.array([[1.0], [2.0], [3.0], [np.nan]]))
         self.assertEqual(errors['median_abs_error_mm'], 0.); self.assertAlmostEqual(errors['median_percentile'], 2 / 3)
+
+
+class NodeAtlasTests(unittest.TestCase):
+    def test_node_atlas_and_position_errors(self):
+        rng = np.random.default_rng(0)
+        anchors = rng.normal(size=(50, 2, 3))
+        anchors[10:, 1] = np.nan                      # node 1 present in 10 of 50 subjects
+        atlas = node_atlas(anchors)
+        self.assertAlmostEqual(atlas[0]['occurrence'], 1.0); self.assertAlmostEqual(atlas[1]['occurrence'], 0.2)
+        self.assertEqual(np.asarray(atlas[0]['covariance_mm2']).shape, (3, 3))
+        near = position_errors(np.zeros((2, 3)), anchors)
+        far = position_errors(np.full((2, 3), 10.), anchors)
+        self.assertEqual(near['fraction_inside_95'], 1.); self.assertEqual(far['fraction_inside_95'], 0.)
+
 
 
 if __name__ == '__main__':

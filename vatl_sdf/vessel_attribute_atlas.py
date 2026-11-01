@@ -17,7 +17,8 @@ Per subject (native space, own graph and own reference SDF; vessel = SDF < 0 = l
   radius: local radius -SDF (trilinear) at centreline points (ground truth) and graph radius (linear along the edge)
       as a secondary measure, native mm and scaled by the subject's learned scale det(A)^(1/3); floor-radius
       (<= 0.801 mm graph radius) points of the whole graph are summarised separately.
-Atlas: per population edge P(both present), P(connected | both), P(connected) for each criterion and the fraction
+Node/edge atlas: per population node occurrence, mean anchor position and positional covariance (template mm) and
+radius distribution; per edge connection probability (both criteria). Atlas: per population edge P(both present), P(connected | both), P(connected) for each criterion and the fraction
 mask-connected but graph-disconnected; per node / edge radius median, IQR and number of subjects; per-voxel radius
 maps. Evaluation: held-out subjects (fitted transforms; centroid-translation-only control) and the first
 --train-queries training subjects with leave-one-out statistics.
@@ -122,7 +123,7 @@ def subject_attributes(args):
             ne, nn = len(pop['edges']), len(pop['nodes_mm'])
             out['populations'][key] = {'present': np.zeros(nn, bool), 'both': np.zeros(ne, bool), 'graph': np.zeros(ne, bool),
                                        'mask': np.zeros(ne, bool), 'node_radius': np.full((nn, 2), np.nan),
-                                       'edge_radius': np.full((ne, 2), np.nan)}
+                                       'edge_radius': np.full((ne, 2), np.nan), 'anchor_t': np.full((nn, 3), np.nan)}
         out['voxels'] = (np.zeros((0, 3), int), np.zeros((0, 2)))
         return out
     tree = cKDTree(template)
@@ -162,7 +163,8 @@ def subject_attributes(args):
             if near:
                 edge_r[k] = np.median(sdf_r[keep][near]), np.median(graph_r[keep][near])
         out['populations'][key] = {'present': present, 'both': np.array(both, bool), 'graph': np.array(g_conn, bool),
-                                   'mask': np.array(m_conn, bool), 'node_radius': node_r, 'edge_radius': edge_r}
+                                   'mask': np.array(m_conn, bool), 'node_radius': node_r, 'edge_radius': edge_r,
+                                   'anchor_t': np.where(present[:, None], template[idx], np.nan) if len(nodes) else np.zeros((0, 3))}
     grid_affine = p['grid_affine']
     voxel = np.rint(world_to_voxel(grid_affine, template)).astype(int)
     inside = (voxel >= 0).all(1) & (voxel < p['grid_shape']).all(1)
@@ -223,6 +225,37 @@ def radius_errors(values, distribution):
     return {'nodes': len(abs_err), 'median_abs_error_mm': float(np.median(abs_err)), 'median_abs_z': float(np.median(np.abs(z))),
             'fraction_abs_z_le_2': float((np.abs(z) <= 2).mean()), 'median_percentile': float(np.median(pct)),
             'fraction_percentile_5_95': float(np.mean([(0.05 <= q <= 0.95) for q in pct]))}
+
+
+def node_atlas(anchors):
+    """anchors (subjects, nodes, 3) template mm, NaN = absent: occurrence, mean position, covariance per node."""
+    out = []
+    for k in range(anchors.shape[1]):
+        x = anchors[:, k][np.isfinite(anchors[:, k]).all(1)]
+        cov = np.cov(x.T) if len(x) >= 4 else None
+        out.append({'occurrence': float(len(x) / len(anchors)), 'n_subjects': int(len(x)),
+                    'mean_mm': x.mean(0).tolist() if len(x) else None, 'covariance_mm2': cov.tolist() if cov is not None else None,
+                    'rms_spread_mm': float(np.sqrt(np.trace(cov))) if cov is not None else None})
+    return out
+
+
+CHI2_3DOF_95 = 7.815
+
+
+def position_errors(anchor, anchors):
+    """Subject anchors (nodes, 3) vs atlas anchors (subjects, nodes, 3): distance to the node mean and squared
+    Mahalanobis distance (regularized covariance + 0.25 mm^2 I); fraction inside the 95% ellipsoid."""
+    dist, inside = [], []
+    for k, v in enumerate(anchor):
+        x = anchors[:, k][np.isfinite(anchors[:, k]).all(1)]
+        if not np.isfinite(v).all() or len(x) < 4:
+            continue
+        mu, cov = x.mean(0), np.cov(x.T) + 0.25 * np.eye(3)
+        d = v - mu
+        dist.append(np.linalg.norm(d)); inside.append(float(d @ np.linalg.solve(cov, d) <= CHI2_3DOF_95))
+    if not dist:
+        return None
+    return {'nodes': len(dist), 'median_distance_mm': float(np.median(dist)), 'fraction_inside_95': float(np.mean(inside))}
 
 
 def radius_summary(values):
@@ -291,6 +324,7 @@ def main():
         node_r = np.array([r['populations'][key]['node_radius'] for r in train])  # (subjects, nodes, 2)
         edge_r = np.array([r['populations'][key]['edge_radius'] for r in train])
         scales = np.array([r['scale'] for r in train])[:, None]
+        anchors = np.array([r['populations'][key]['anchor_t'] for r in train])  # (subjects, nodes, 3)
         # maps: per-edge values painted on the population edge paths (voxels within 1 mm)
         for name in ('p_both', 'graph_p_conn_given_both', 'graph_p_conn', 'mask_p_conn_given_both', 'mask_p_conn', 'mask_not_graph_given_both'):
             field = np.full(shape, np.nan, np.float32)
@@ -306,7 +340,8 @@ def main():
                 records.append({'subject_id': r['subject_id'], 'connectivity': score_connectivity(obs, counts, n),
                                 'radius_node_sdf': radius_errors(obs['node_radius'][:, 0], node_r[:, :, 0]),
                                 'radius_node_sdf_scaled': radius_errors(obs['node_radius'][:, 0] * r['scale'], node_r[:, :, 0] * scales),
-                                'radius_node_graph': radius_errors(obs['node_radius'][:, 1], node_r[:, :, 1])})
+                                'radius_node_graph': radius_errors(obs['node_radius'][:, 1], node_r[:, :, 1]),
+                                'node_position': position_errors(obs['anchor_t'], anchors)})
             evaluation[f'test/{frame_name}'] = records
         records = []
         for i in q:
@@ -316,7 +351,8 @@ def main():
             records.append({'subject_id': train[i]['subject_id'], 'connectivity': score_connectivity(obs, loo, n - 1),
                             'radius_node_sdf': radius_errors(obs['node_radius'][:, 0], node_r[others, :, 0]),
                             'radius_node_sdf_scaled': radius_errors(obs['node_radius'][:, 0] * train[i]['scale'], node_r[others, :, 0] * scales[others]),
-                            'radius_node_graph': radius_errors(obs['node_radius'][:, 1], node_r[others, :, 1])})
+                            'radius_node_graph': radius_errors(obs['node_radius'][:, 1], node_r[others, :, 1]),
+                            'node_position': position_errors(obs['anchor_t'], anchors[others])})
         evaluation['train_loo/learned'] = records
 
         def med(records, path):
@@ -332,6 +368,7 @@ def main():
                           for m_ in ('loglik_given_both', 'loglik_unconditional', 'coverage_connected_p_ge_0.5', 'brier_given_both', 'edges_both_present')}
                    | {f'{rk}_{m_}': med(recs, [rk, m_]) for rk in ('radius_node_sdf', 'radius_node_sdf_scaled', 'radius_node_graph')
                       for m_ in ('median_abs_error_mm', 'median_abs_z', 'median_percentile', 'fraction_percentile_5_95')}
+                   | {f'node_position_{m_}': med(recs, ['node_position', m_]) for m_ in ('nodes', 'median_distance_mm', 'fraction_inside_95')}
                    for name, recs in evaluation.items()}
         to_list = lambda x: [None if (isinstance(v, float) and np.isnan(v)) else (float(v) if not isinstance(v, (int, np.integer)) else int(v)) for v in x]
         summary['populations'][key] = {
@@ -341,6 +378,8 @@ def main():
             'node_radius_sdf_mm': radius_summary(node_r[:, :, 0]), 'node_radius_sdf_scaled_mm': radius_summary(node_r[:, :, 0] * scales),
             'node_radius_graph_mm': radius_summary(node_r[:, :, 1]), 'edge_radius_sdf_mm': radius_summary(edge_r[:, :, 0]),
             'edge_radius_graph_mm': radius_summary(edge_r[:, :, 1]),
+            'node_atlas': node_atlas(anchors),
+            'edge_connection_probability': {'graph': to_list(stats['graph_p_conn']), 'mask': to_list(stats['mask_p_conn'])},
             'evaluation_median': medians, 'evaluation': evaluation}
         print(json.dumps({'population': key, 'edge_connectivity_median': summary['populations'][key]['edge_connectivity_median'],
                           'evaluation_median': medians}), flush=True)
