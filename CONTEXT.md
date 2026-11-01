@@ -762,6 +762,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47046 | Deviation pipeline real-data SMOKE (not a result): null 4 / calibration 2 diagnostic subjects + 5 test subjects from the 20261101_l6full_gen refits (CPU, QOS dev) | 16 CPU, frozen 9cfce5c | sdf_only/analysis/20261101_dev_smoke (inputs 20261101_dev_smoke_inputs) | 0 | COMPLETED 8 min, 21 GB RAM |
 | 47050 | Deviation statistics, full run: null 100 (LOO, refitted), calibration 50, validation 20; decoder / learned / centroid; uniform + age sigma 7/5/10 (CPU) | 16 CPU, 240 GB, frozen 9cfce5c | sdf_only/analysis/20261101_deviation | 0 | COMPLETED 17.5 min, 28 GB; superseded by v2 (Holm/BH resolution issue, see Step 1 results) |
 | 47054 | Deviation statistics v2: as 47050 + family min-p calibrated on the null + population-referenced element p-values (BH) (CPU) | 16 CPU, frozen 51b2576 | sdf_only/analysis/20261101_deviation_v2 | 0 | submitted |
+| 47058-47077 | Null extension: test-time refits of 200 more training subjects (configs/evaluation/deviation_sets_null_extra.json, seed 0), chunks of 10 (QOS normal/dev alternating) | 20 x 1 L40S, frozen 2389528 | sdf_only/analysis/20261101_dev_refit_null_extra | | submitted |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1613,3 +1614,15 @@ moving vs fixed: 0.03 unregistered, 0.13 affine, 0.18 SyN (single pair; pairwise
 Projection (hypothesis, from this one pair): ~520 s per subject for affine + SyN on 8 threads; at 16 parallel jobs
 (128 cores) a 100-subject template with 4 SyN iterations ~3.6 h and 552 cohort registrations ~5 h at 1 mm; roughly
 3x less at 1.5 mm.
+
+### User instructions 2026-11-01 night (user offline until morning; no confirmation needed within this scope)
+
+After v2: write the Step 1/2 report. Then (1) APPROVED synthetic perturbation sensitivity test restricted to large
+circle-of-Willis vessels (selection from the learned r3mm_tau0.1 population graph: p_edge >= 0.5, path within ~25 mm
+of a data-defined CoW centre; per subject only selected edges present with subject graph radius >= 1.5 mm;
+perturbations removal (tube r + 1 mm), thinning to 50% radius, displacement 3 and 5 mm; in-memory copies only; one
+edge per copy; 20 validation subjects; methods decoder, learned, centroid; report element detection after BH
+(population- and null-referenced), subject detection (family min-p), perturbed edges and p_edge, next to validation
+FPR; report counts if < ~10 subjects qualify). (2) APPROVED null extension by up to 200 refitted training subjects
+(outside null/calibration/ANTs-template; seed 0; existing sets unchanged); rerun with null 100 vs 300. Still not
+allowed: any ANTs registration/template, MRA variants, objective changes, modifying/deleting data or outputs.
