@@ -1581,3 +1581,22 @@ template 100, disjoint, seed 0, 6 diagnostic subjects excluded (from all three s
 configs/evaluation/deviation_sets.json, commit 255addf). ANTs input: clipped SDF primary, mask secondary; no MRA variant;
 do not use or modify ants-2.6.4/atlas/ants_output. alpha = 0.05 (subject scores), q = 0.05 (edges/nodes), age kernel
 sigma 7 y (5, 10 as checks).
+
+### Step 1 code (commit 35b052a; tests/test_deviation.py, full suite 102 tests OK)
+
+- analysis/deviation/subject_sets.py -> configs/evaluation/deviation_sets.json (frozen); analysis/deviation/refit_subjects.py
+  + slurm/refit_subjects.sh (chunks of 10, generalization settings); probabilistic_atlas shard --save-subjects
+  (per-subject hard decodings, bit-packed); graph_atlas.build_population (refactor, outputs unchanged).
+- vatl_sdf/deviation.py + slurm/deviation.sh: population statistics per alignment method from REAL labels/graphs
+  (learned: trained transforms for the population, refitted for queries; centroid translation) plus the decoder
+  occupancy row; exact LOO (own label / graph / decoding / transform removed); uniform and age-kernel weights
+  (sigma 7, 5, 10; ESS reported; pseudo-count c = sum w / ESS); occupancy labels counted only inside each subject's
+  FOV; recalibration (smoothing 0-3 mm x none/platt/isotonic) selected per method on the 50 calibration subjects
+  (uniform and sigma 7 only; up to 5M pooled ROI voxels); scores per query (voxel NLL/Brier ROI and FOV, uncal/cal;
+  centreline uncoverage at 0.1/0.25/0.5; edge surprise total; connectivity surprise totals graph/mask; radius |z|
+  and abs error for -SDF native/scaled and graph radius, floor nodes separate; affine Mahalanobis (learned));
+  empirical p = (1 + #null >= s)/(1 + #null), null subjects against the other null subjects; BH (q) per element
+  family (edge presence, connectivity graph, connectivity mask, node radius) within subject; Holm (alpha) over the
+  primary score family; FPR on null LOO and validation; absent expected edges (p_e >= 0.5) classified as
+  radius_threshold / graph_defect / displaced / absent. Per-subject JSON reports (null + validation; uniform and sigma
+  7) and NIfTI maps (validation, uniform: VoxelSurprise, EdgeSurprise, NodeRadiusZ).
