@@ -45,7 +45,13 @@ def read_metadata(config):
     if data.get('max_subjects'):
         if config['training'].get('max_steps') is None:
             raise ValueError('max_subjects is allowed only for explicit max_steps smoke checks')
-        frame = frame.head(int(data['max_subjects']))
+        # subset_include: these training IDs are always kept; the rest of the subset is the first remaining IDs in
+        # YAML order (nested subsets for growing max_subjects); final order stays YAML order. Absent = head(N).
+        keep = list(data.get('subset_include') or [])
+        if set(keep) - set(frame.subject_id) or len(keep) > int(data['max_subjects']) or len(set(keep)) != len(keep):
+            raise ValueError('subset_include must list distinct declared training IDs, at most max_subjects')
+        others = [s for s in frame.subject_id if s not in set(keep)][:int(data['max_subjects']) - len(keep)]
+        frame = frame[frame.subject_id.isin(set(keep) | set(others))]
     if frame.empty:
         raise ValueError('No declared training subjects remain')
     parent = Path(config['data']['tsv']).resolve().parent

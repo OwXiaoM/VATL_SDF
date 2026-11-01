@@ -11,6 +11,7 @@ import torch
 from tests.test_alignment import normalized, staged
 from tests.test_pipeline import tiny_config
 from vatl_sdf.config import condition_vector
+from vatl_sdf.dataset import read_metadata
 from vatl_sdf.losses import normalized_sdf
 from vatl_sdf.model import SDFModel
 from vatl_sdf.train import train
@@ -43,6 +44,22 @@ class ProbeTests(unittest.TestCase):
             expected = (pred[:, 0] - normalized_sdf(torch.as_tensor(target), state['config']['sdf']['truncation_mm']).reshape(-1)).abs().mean().item()
             row = table[(table.run == 'a') & (table.step == state['step']) & (table.subject_index == 1)].iloc[0]
             self.assertAlmostEqual(row.own, expected, places=5)
+
+
+class SubsetTests(unittest.TestCase):
+    def test_subset_include_keeps_listed_ids_and_yaml_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = tiny_config(d)
+            c['data']['max_subjects'] = 1
+            self.assertEqual(read_metadata(c).subject_id.tolist(), ['s0'])            # default: head(N)
+            c['data']['subset_include'] = ['s1']
+            self.assertEqual(read_metadata(c).subject_id.tolist(), ['s1'])
+            c['data']['max_subjects'] = 2
+            self.assertEqual(read_metadata(c).subject_id.tolist(), ['s0', 's1'])      # YAML order kept
+            for bad in (['nope'], ['s1', 's1'], ['s0', 's1', 's1']):
+                c['data']['subset_include'] = bad
+                with self.assertRaises(ValueError):
+                    read_metadata(c)
 
 
 if __name__ == '__main__':
