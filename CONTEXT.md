@@ -750,7 +750,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
-| 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | | pending |
+| 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | | pending |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
@@ -1330,6 +1330,13 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   recurrence 3 mm train 0.273, test 0.370 (centroid-only 0.150); MoE layer-1 entropy 0.83; latent median 0.72.
   => fewer subjects raise the trained fit (0.76 at 20 epochs vs 0.39 full) but not the test-time fit (0.39 vs 0.37), and
   lower recurrence (0.27 vs 0.41): consistent with memorization (hypothesis-level for this run alone).
+- sg_s100nocond (job 46902/46903; as sg_s100 with condition_scale 0): 0c Dice 0.680, MAE 1.15, volume 1.10, component
+  ratio 5.2 (>= 10 vox: 5.5); test Dice 0.354 / MAE 1.42 / volume 0.97 / comp 6.3; train_refit 0.421; recurrence 3 mm
+  train 0.212, test 0.290 (centroid 0.150); MoE layer-1 entropy 0.70; latent median 0.80.
+  => (fact) at 20 epochs, removing the age/sex input lowers the trained fit only modestly (0.76 -> 0.68) and also lowers
+  test fit (0.39 -> 0.35) and recurrence. So the condition is not the only memorization route here: the latent
+  carries most of the trained fit without it (the earlier swap_cond probe was on the 40k-step pilot). The refit-minus-
+  test gap persists (0.51-0.39 with, 0.42-0.35 without). Zeroing the condition is not a candidate fix.
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 
