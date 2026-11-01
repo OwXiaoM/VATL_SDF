@@ -150,6 +150,17 @@ class FittingTests(unittest.TestCase):
         self.assertTrue(set(np.unique(occupancy)) <= {0., 1.})      # one training subject: binary frequency
         self.assertIn('ge_0.5', result['connectivity']['occupancy'])
         self.assertEqual(set(result['heldout']), {'subject_ids', 'fitted_file', 'roi', 'control', 'learned', 'centroid_translated'})
+        from vatl_sdf import graph_atlas
+        graph_out = Path(self.temp.name) / 'graph_atlas'
+        with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--output', str(graph_out),
+                                             '--fitted', str(out / 'fitted_test.pt'), '--radii-mm', '2', '--thresholds', '0.5',
+                                             '--min-skeleton-voxels', '1', '--workers', '1']):
+            graph_atlas.main()
+        graph = json.loads((graph_out / 'graph_atlas.json').read_text())
+        level = graph['radii']['2']['thresholds']['0.5']
+        self.assertGreater(level['skeleton_voxels'], 0)
+        self.assertEqual(set(level['evaluation']), {'test/learned', 'test/centroid_translated', 'train_loo/learned',
+                                                    'train_loo/centroid_translated'})
         with self.assertRaises(ValueError):  # shards must cover every subject exactly once
             (shards / 'shard_00_of_02.npz').unlink()  # the shard holding the only training subject
             with mock.patch.object(sys, 'argv', ['x', 'merge', '--checkpoint', str(self.checkpoint_path), '--shards', str(shards),
