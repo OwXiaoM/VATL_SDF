@@ -161,6 +161,17 @@ class FittingTests(unittest.TestCase):
         self.assertGreater(level['skeleton_voxels'], 0)
         self.assertEqual(set(level['evaluation']), {'test/learned', 'test/centroid_translated', 'train_loo/learned',
                                                     'train_loo/centroid_translated'})
+        from vatl_sdf import vessel_attribute_atlas
+        attr_out = Path(self.temp.name) / 'attribute_atlas'
+        with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--fitted', str(out / 'fitted_test.pt'),
+                                             '--graph-atlas', str(graph_out), '--output', str(attr_out),
+                                             '--populations', 'r2mm_tau0.5', '--workers', '1']):
+            vessel_attribute_atlas.main()
+        attr = json.loads((attr_out / 'vessel_attribute_atlas.json').read_text())
+        self.assertIn('r2mm_tau0.5', attr['populations'])
+        self.assertEqual(set(attr['populations']['r2mm_tau0.5']['evaluation']),
+                         {'test/learned', 'test/centroid_translated', 'train_loo/learned'})
+        self.assertTrue((attr_out / 'Radius_sdf_median.nii.gz').is_file())
         with self.assertRaises(ValueError):  # shards must cover every subject exactly once
             (shards / 'shard_00_of_02.npz').unlink()  # the shard holding the only training subject
             with mock.patch.object(sys, 'argv', ['x', 'merge', '--checkpoint', str(self.checkpoint_path), '--shards', str(shards),
