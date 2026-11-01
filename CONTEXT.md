@@ -747,7 +747,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | 0c 0.280; test 0.318; refit 0.336; rec3 0.375/0.394; MoE1 0.585 | done (train 1 h 43, post 45 min) |
 | 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | 0c 0.397; test 0.543; refit 0.565; rec3 0.367/0.419; MoE1 0.533 | done (train 1 h 52, post 45 min) |
 | 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | 0c 0.301; test 0.362; refit 0.405; rec3 0.355/0.413; MoE1 0.406 | done (train 2 h 30, post 1 h 43) |
-| 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
+| 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | 0c 0.363; test 0.369; refit 0.391; rec3 0.417/0.454; MoE1 0.597 | done (train 3 h 35, post 58 min) |
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | 0c 0.163; test 0.228; refit 0.216; rec3 0.399/0.431; MoE1 1.26 | done (train 1 h 44, post 43 min) |
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
@@ -1374,6 +1374,12 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   recurrence 3 mm train 0.399, test 0.431; MoE layer-1 entropy 1.26 (highest; routing stays diffuse); latent median 2.55.
   => (fact) worse on every fit metric. Its latent norm (2.55) matches sg_latent6 (2.60), so the latent-6^3 gain is not
   explained by larger latent norms alone (the grid resolution differs; hypothesis: spatial detail per subject).
+- sg_r40 (job 46896/46897; 40 epochs instead of 20, else = sg_r20; train 3 h 35, post 58 min): 0c Dice 0.363, MAE 1.40,
+  volume 1.56, component ratio 13.1; test Dice 0.369 / MAE 1.66 / volume 2.79 / comp 8.6 (test-time budget 40 epochs, the
+  run's own; at 20 test-time epochs 0.348); train_refit 0.391; recurrence 3 mm train 0.417, test 0.454; MoE layer-1
+  entropy 0.597; latent median 1.26. Consistent with full A4 at 36 epochs (test 0.373, recurrence 0.407/0.437).
+  => (fact) doubling the length gives +0.05 test Dice and +0.04-0.06 recurrence; ~5x smaller fit effect than latent
+  6^3 at 20 epochs. Recurrence rises with training length (0.375 -> 0.417), not with latent size (0.367).
 
 Recommended-recipe candidate (decided 2026-11-01 after sg_latent6, before sg_r40 / sg_latentlr / sg_s100g3 finished):
 config 21_a4_full_latent6 = 13_a4_full with ONE change, latent grid 256x6^3 (36 epochs, 3 GPUs, run horizon), so it is
