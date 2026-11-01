@@ -1788,4 +1788,4 @@ Facts:
   calibration is less conservative but the null distribution of min-p now includes more extreme training subjects.
 - Edge-presence family still 0 everywhere; thinning and displacement remain near baseline for all methods.
 - Edge 11 (midline, p 0.62, longest target 19.9 mm) removal is not detected element-wise by learned (0/12) but is by
-  centroid (4/12): learned population maps its end nodes elsewhere (not investigated).
+  centroid (4/12); cause not investigated (hypothesis: different mapped population edges/nodes for this path).
