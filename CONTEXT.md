@@ -748,12 +748,12 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | 0c 0.397; test 0.543; refit 0.565; rec3 0.367/0.419; MoE1 0.533 | done (train 1 h 52, post 45 min) |
 | 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | 0c 0.301; test 0.362; refit 0.405; rec3 0.355/0.413; MoE1 0.406 | done (train 2 h 30, post 1 h 43) |
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
-| 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
+| 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | 0c 0.163; test 0.228; refit 0.216; rec3 0.399/0.431; MoE1 1.26 | done (train 1 h 44, post 43 min) |
 | 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | 0c 0.299; test 0.353; refit 0.385; rec3 0.369/0.452; MoE1 0.667 | done (train 2 h 14, post 40 min) |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
-| 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | | submitted |
+| 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | | running (started ~13:55) |
 | (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | armed |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1369,6 +1369,11 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   volume 1.16, component ratio 15.1; test Dice 0.362 / MAE 1.69 / volume 1.69 / comp 11.0; train_refit 0.405;
   recurrence 3 mm train 0.355, test 0.413; MoE layer-1 entropy 0.406 (lowest so far: sharper layer-1 routing).
   => (fact) modest gain (test 0.318 -> 0.362, volume 2.36 -> 1.69) at ~1.5x training time; far smaller than latent 6^3.
+- sg_latentlr (job 46898/46899; lr_latent 2e-3 instead of 5e-4, else = sg_r20; train 1 h 44, post 43 min): 0c Dice 0.163,
+  MAE 1.90, volume 2.90, component ratio 35.5; test Dice 0.228 / MAE 2.06 / volume 4.04 / comp 18.9; train_refit 0.216;
+  recurrence 3 mm train 0.399, test 0.431; MoE layer-1 entropy 1.26 (highest; routing stays diffuse); latent median 2.55.
+  => (fact) worse on every fit metric. Its latent norm (2.55) matches sg_latent6 (2.60), so the latent-6^3 gain is not
+  explained by larger latent norms alone (the grid resolution differs; hypothesis: spatial detail per subject).
 
 Recommended-recipe candidate (decided 2026-11-01 after sg_latent6, before sg_r40 / sg_latentlr / sg_s100g3 finished):
 config 21_a4_full_latent6 = 13_a4_full with ONE change, latent grid 256x6^3 (36 epochs, 3 GPUs, run horizon), so it is
