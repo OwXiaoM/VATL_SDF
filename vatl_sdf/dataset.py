@@ -72,7 +72,8 @@ def voxel_coordinates(indices, shape, affine, config):
 
 
 def load_subject(row, config):
-    image = nib.load(row['SDF'])
+    from .sources import load_image
+    image = load_image(row['SDF'])
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     if sdf.ndim == 4 and sdf.shape[-1] == 1:
         sdf = sdf[..., 0]

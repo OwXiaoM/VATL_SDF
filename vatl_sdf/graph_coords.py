@@ -32,6 +32,9 @@ RADIUS_SCALE_TO_MM = 1.0
 
 def load_graph(path):
     """Return node ids, world positions (N, 3), radii in mm (N,), edge index (E, 2), graph."""
+    from . import sources
+    if sources.is_virtual(path):
+        return sources.virtual_graph(path)
     with open(path, 'rb') as f:
         payload = pickle.load(f)
     graph = payload['graph'] if isinstance(payload, dict) else payload

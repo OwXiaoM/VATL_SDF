@@ -92,7 +92,8 @@ def mask_label(labels, sdf, affine, world, snap_mm):
 def subject_attributes(args):
     """Per-subject presence, connectivity and radius on every population graph (see module docstring)."""
     row, A, t, populations, p = args
-    image = nib.load(row['SDF'])
+    from .sources import load_image
+    image = load_image(row['SDF'])
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     sdf = sdf[..., 0] if sdf.ndim == 4 else sdf
     affine = image.affine

@@ -470,6 +470,8 @@ def main():
     p.add_argument('--alpha', type=float, default=0.05); p.add_argument('--q', type=float, default=0.05)
     p.add_argument('--methods', nargs='+', default=['decoder', 'learned', 'centroid'])
     p.add_argument('--workers', type=int, default=16)
+    p.add_argument('--perturbations', help='perturbation manifest: score the fitted copies (refit set perturbed) as extra queries')
+    p.add_argument('--perturbed-weightings', nargs='+', default=['uniform'])
     a = p.parse_args()
     started = time.time()
     out = Path(a.output); out.mkdir(parents=True, exist_ok=False)
@@ -485,6 +487,13 @@ def main():
     for s in refit:
         if set(refit[s]) != set(sets[s]):
             raise ValueError(f'Refitted {s} subjects differ from the set ({len(refit[s])} vs {len(sets[s])})')
+    manifest, copy_frame = None, None
+    if a.perturbations:
+        from .perturbation import configure, copy_rows
+        manifest = configure(a.perturbations)
+        refit['perturbed'] = load_fitted(a.refit, 'perturbed')
+        copy_frame = copy_rows(manifest)
+        copy_frame = copy_frame[copy_frame.subject_id.isin(refit['perturbed'])]  # only copies whose refit finished
     _, shape, affine = world_grid(config, [1.0] * 3)
     shape = tuple(int(x) for x in shape)
     n_vox = int(np.prod(shape))
@@ -508,6 +517,8 @@ def main():
     query_rows = [(s, set_name, frame.set_index('subject_id', drop=False).loc[s] if set_name != 'validation'
                    else val_rows.set_index('subject_id', drop=False).loc[s]) for set_name in ('null', 'calibration', 'validation')
                   for s in sets[set_name]]
+    if copy_frame is not None:
+        query_rows += [(row.subject_id, 'perturbed', row) for _, row in copy_frame.iterrows()]
     with Pool(a.workers) as pool:
         query_prep = pool.map(subject_preparation, [(row, {'learned': refit[set_name][s], 'centroid': (np.eye(3), None)}, a.min_radius_mm)
                                                     for s, set_name, row in query_rows])
@@ -551,6 +562,12 @@ def main():
                                          'total_length_mm': float(sum(pop['edge_length_mm'])), 'map_max': float(pop['cmap'].max())}
             save(pop['cmap'], affine, out / f'CentrelineProbability_{m}_r{r:g}mm.nii.gz')
     STATE['populations'] = populations
+    if manifest is not None:  # the manifest indexes edges of the same learned population (graph_atlas build, same settings)
+        learned_primary = populations['learned'][f'r{a.radii_mm[0]:g}mm_tau{a.tau:g}']
+        for target in manifest['targets']:
+            k = target['population_edge']
+            if k >= len(learned_primary['edge_points_mm']) or not np.allclose(learned_primary['edge_points_mm'][k].mean(0), target['mean_mm'], atol=1e-6):
+                raise ValueError(f'Perturbation target edge {k} does not match the learned population built here')
     STATE['presence'] = presences
     STATE['primary_population'] = f'r{a.radii_mm[0]:g}mm_tau{a.tau:g}'
     with Pool(a.workers) as pool:
@@ -578,7 +595,9 @@ def main():
     cal_s = time.time() - started - prep_s
     # scoring
     eval_keys = [k for k in queries if queries[k]['set'] in ('null', 'validation')]
+    keys_pert = [k for k in queries if queries[k]['set'] == 'perturbed']
     tasks = [(k, m, wn, sg, queries[k]['set'] == 'validation' and wn == 'uniform') for k in eval_keys for m in a.methods for wn, sg in weightings]
+    tasks += [(k, m, wn, sg, False) for k in keys_pert for m in a.methods for wn, sg in weightings if wn in a.perturbed_weightings]
     with Pool(a.workers) as pool:
         results = {(k, m, wn): (sc, el) for k, m, wn, sc, el in pool.imap_unordered(score_query, tasks, chunksize=4)}
     score_s = time.time() - started - prep_s - cal_s
@@ -596,7 +615,11 @@ def main():
     tables = []
     for m in a.methods:
         for wn, _ in weightings:
-            pv = null_pvalues(results, m, wn, keys_null, keys_val, a.alpha, a.q)
+            pert = keys_pert if wn in a.perturbed_weightings else []
+            pv = null_pvalues(results, m, wn, keys_null, keys_val + pert, a.alpha, a.q)
+            if pert:
+                summary.setdefault('sensitivity', {})[f'{m}/{wn}'] = detection_report(
+                    manifest, queries, results, pv, m, wn, keys_val, pert, a.alpha)
             summary['fpr'][f'{m}/{wn}'] = {'null_loo': false_positive_rates(pv, keys_null, a.alpha),
                                           'validation': false_positive_rates(pv, keys_val, a.alpha)}
             names = sorted(results[(keys_null[0], m, wn)][0])
@@ -618,9 +641,77 @@ def main():
                 if wn == 'uniform' or wn == weightings[1][0]:
                     write_subject_report(out, queries[k], m, wn, sc, el, pv[k], populations.get(m, {}), affine, shape)
     pd.DataFrame(tables).to_csv(out / 'scores.tsv', sep='\t', index=False)
+    if manifest is not None:
+        summary['perturbations'] = {'manifest': str(Path(a.perturbations).resolve()), 'copies_in_manifest': len(manifest['copies']),
+                                    'copies_scored': len(keys_pert), 'willis_centre_mm': manifest['willis_centre_mm'],
+                                    'targets': manifest['targets'], 'eligible_subjects': manifest['eligible_subjects']}
     summary['runtime_s'] = {'preparation': prep_s, 'calibration': cal_s, 'scoring': score_s, 'total': time.time() - started}
     (out / 'deviation.json').write_text(json.dumps(summary, indent=1, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o)))
     print(json.dumps({k: {g: v[g]['primary_holm_any'] for g in v} for k, v in summary['fpr'].items()}, indent=1))
+
+
+def target_elements(pop, target_path, r):
+    """Edges of a method's population overlapping the perturbed target path (>= 50% of either path within r), and
+    their end nodes."""
+    edges = []
+    for j, pts in enumerate(pop['edge_points_mm']):
+        a_in_b = (cKDTree(target_path).query(pts)[0] <= r).mean(); b_in_a = (cKDTree(pts).query(target_path)[0] <= r).mean()
+        if max(a_in_b, b_in_a) >= 0.5:
+            edges.append(j)
+    nodes = sorted({n for j in edges for n in pop['edges'][j]})
+    return edges, nodes
+
+
+def element_flags(fam, edges, nodes, reject_key):
+    out = {f: bool(fam[f][reject_key][edges].any()) if edges else False for f in ('edge_surprise', 'conn_graph', 'conn_mask')}
+    out['radius_absz'] = bool(fam['radius_absz'][reject_key][nodes].any()) if nodes else False
+    out['any'] = any(out.values())
+    return out
+
+
+def detection_report(manifest, queries, results, pv, method, wname, keys_val, keys_pert, alpha):
+    """Sensitivity on perturbed copies: perturbed element detected after BH (population- and null-referenced p-values),
+    per family; subject detection by family min-p; the same elements / subject test on the unperturbed validation
+    subject as the matched false-positive reference."""
+    copies = {c['copy_id']: c for c in manifest['copies']}
+    pop_key = STATE['primary_population']
+    learned_pop = STATE['populations'].get('learned', {}).get(pop_key)
+    rows = []
+    for k in keys_pert:
+        c = copies[queries[k]['subject_id']]
+        base = f'validation/{c["subject_id"]}'
+        row = {'copy_id': c['copy_id'], 'subject_id': c['subject_id'], 'kind': c['kind'], 'magnitude': c['magnitude'],
+               'population_edge': c['population_edge'], 'p_edge': c['p_edge'], 'segment_radius_mm': c['segment_radius_mm'],
+               'subject_detected': pv[k]['p_family'] <= alpha, 'baseline_subject_detected': pv[base]['p_family'] <= alpha}
+        if method != 'decoder':
+            pop = STATE['populations'][method][pop_key]
+            target_path = learned_pop['edge_points_mm'][c['population_edge']]
+            edges, nodes = target_elements(pop, target_path, pop['radius_mm'])
+            row.update(mapped_edges=edges, mapped_nodes=nodes)
+            el = results[(k, method, wname)][1][pop_key]
+            row['target_present_after'] = bool(el['edge_present'][edges].all()) if edges else None
+            for ref, key in (('population', 'reject_population'), ('null', 'reject')):
+                flags = element_flags(pv[k]['elements'][pop_key], edges, nodes, key)
+                base_flags = element_flags(pv[base]['elements'][pop_key], edges, nodes, key)
+                row.update({f'{ref}_{f}': v for f, v in flags.items()})
+                row.update({f'baseline_{ref}_{f}': v for f, v in base_flags.items()})
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    groups = {}
+    for (kind, magnitude), g in table.groupby(['kind', 'magnitude']):
+        entry = {'copies': len(g), 'subjects': int(g.subject_id.nunique()),
+                 'subject_detection': float(g.subject_detected.mean()), 'baseline_subject_detection': float(g.baseline_subject_detected.mean())}
+        if method != 'decoder':
+            for col in [c for c in g.columns if c.startswith(('population_', 'null_', 'baseline_population_', 'baseline_null_'))
+                        and c != 'population_edge']:
+                entry[col] = float(g[col].mean())
+            entry['target_present_after'] = float(g.target_present_after.dropna().mean()) if g.target_present_after.notna().any() else None
+            entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]), 'population_any': float(h.population_any.mean()),
+                                          'null_any': float(h.null_any.mean()), 'subject': float(h.subject_detected.mean())}
+                                 for e, h in g.groupby('population_edge')}
+        groups[f'{kind}{magnitude:g}'] = entry
+    validation_fpr = {'subject_family_minp': float(np.mean([pv[k]['p_family'] <= alpha for k in keys_val]))}
+    return {'by_perturbation': groups, 'validation_fpr': validation_fpr, 'copies': rows}
 
 
 def write_subject_report(out, query, method, wname, scores, elements, pv, pops, affine, shape):

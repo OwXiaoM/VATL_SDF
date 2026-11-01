@@ -17,10 +17,13 @@ import torch
 from analysis.generalization.evaluate_generalization import test_frame
 from vatl_sdf.test_time_fit import SubjectSampler, build_fitting_model, fit, subject_maps, training_steps_per_epoch
 
-SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4, 'null_extra': 5}  # 1 = the generalization 'test' group
+SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4, 'null_extra': 5, 'perturbed': 6}  # 1 = the generalization 'test' group
 
 
-def set_frame(config, frame, sets, name):
+def set_frame(config, frame, sets, name, manifest=None):
+    if name == 'perturbed':  # in-memory perturbation copies (vatl_sdf/perturbation.py), priority order of the manifest
+        from vatl_sdf.perturbation import copy_rows
+        return copy_rows(manifest)
     if name == 'validation':
         return test_frame(config, frame.subject_id.tolist(), '', len(sets['validation']))
     ids = sets[name]
@@ -37,6 +40,7 @@ def main():
     p.add_argument('--align-epochs', type=int, default=10); p.add_argument('--total-epochs', type=int, default=36)
     p.add_argument('--horizon-epochs', type=int); p.add_argument('--steps-per-epoch', type=int)
     p.add_argument('--device', default='cuda')
+    p.add_argument('--perturbations', help='perturbation manifest (set perturbed)')
     a = p.parse_args()
     started = time.time()
     checkpoint = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
@@ -44,7 +48,11 @@ def main():
     horizon = a.horizon_epochs or int(checkpoint['scheduler']['T_max'])
     steps = a.steps_per_epoch or training_steps_per_epoch(config)
     sets = json.loads(Path(a.sets).read_text())
-    full = set_frame(config, frame, sets, a.set)
+    manifest = None
+    if a.set == 'perturbed':
+        from vatl_sdf.perturbation import configure
+        manifest = configure(a.perturbations)
+    full = set_frame(config, frame, sets, a.set, manifest)
     chunk = full.iloc[a.chunk * a.chunk_size:(a.chunk + 1) * a.chunk_size].reset_index(drop=True)
     if not len(chunk):
         raise ValueError('Empty chunk')

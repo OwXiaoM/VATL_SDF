@@ -79,7 +79,8 @@ def template_world(shape, affine):
 def subject_labels_in_template(sdf_path, A, t_mm, template_mm, world_bbox_mm):
     """Vessel label (SDF < 0) of a subject at template points, through world = A^-1 (x - t) + centre.
     valid = inside the subject image and its physical bounding box (the region used in training)."""
-    image = nib.load(sdf_path)
+    from .sources import load_image
+    image = load_image(sdf_path)
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     sdf = sdf[..., 0] if sdf.ndim == 4 else sdf
     centre = nib.affines.apply_affine(image.affine, np.asarray(sdf.shape, float) / 2.)
