@@ -160,6 +160,31 @@ def aggregate(records):
     return out
 
 
+def build_population(clouds, shape, affine, radius_mm, tau, edge_cover, min_skeleton_voxels, cmap=None):
+    """Population graph from subject centreline clouds (template mm): centreline probability c_r (fraction of
+    subjects within radius_mm), mask c_r >= tau, skeleton (components >= min_skeleton_voxels), skeleton graph,
+    per-subject edge presence (subjects, edges) and edge probability."""
+    if cmap is None:
+        cmap = np.zeros(shape)
+        for cloud in clouds:
+            cmap += within_radius(cloud, shape, affine, radius_mm)
+        cmap /= len(clouds)
+    mask = cmap >= tau
+    skeleton = skeletonize(mask) > 0
+    skel_labels, _ = ndi.label(skeleton, np.ones((3, 3, 3), bool))
+    skeleton &= np.bincount(skel_labels.ravel())[skel_labels] >= min_skeleton_voxels
+    nodes, edges = skeleton_graph(skeleton)
+    points = edge_points_mm(edges, affine)
+    trees = [cKDTree(x) if len(x) else None for x in clouds]
+    y = presence(trees, points, radius_mm, edge_cover)
+    return {'cmap': cmap, 'mask': mask, 'skeleton': skeleton, 'nodes_vox': nodes,
+            'nodes_mm': nib.affines.apply_affine(affine, nodes) if len(nodes) else nodes,
+            'edges': [(int(a_), int(b_)) for a_, b_, _ in edges], 'edge_points_mm': points, 'presence': y,
+            'edge_probability': y.mean(0) if len(edges) else np.zeros(0),
+            'edge_length_mm': [float(np.linalg.norm(np.diff(pt, axis=0), axis=1).sum()) for pt in points],
+            'radius_mm': radius_mm, 'tau': tau, 'edge_cover': edge_cover, 'subjects': len(clouds)}
+
+
 def held_out_rows(config, ids):
     rows = pd.read_csv(config['data']['tsv'], sep='\t', dtype={'subject_id': str}).set_index('subject_id', drop=False)
     parent = Path(config['data']['tsv']).resolve().parent
@@ -207,32 +232,24 @@ def main():
                'train_query_note': f'first {a.train_queries} training subjects, leave-one-out edge probabilities', 'radii': {}}
     q = list(range(min(a.train_queries, n)))
     for r in a.radii_mm:
-        cmap = np.zeros(shape)
-        for cloud in learned:
-            cmap += within_radius(cloud, shape, affine, r)
-        cmap /= n
-        save(cmap, affine, out / f'CentrelineProbability_r{r:g}mm.nii.gz')
-        per_r = {'map_max': float(cmap.max()), 'thresholds': {}}
+        cmap = None
+        per_r = {'thresholds': {}}
         for tau in a.thresholds:
-            mask = cmap >= tau
+            pop = build_population(learned, shape, affine, r, tau, a.edge_cover, a.min_skeleton_voxels, cmap)
+            if cmap is None:
+                cmap = pop['cmap']
+                save(cmap, affine, out / f'CentrelineProbability_r{r:g}mm.nii.gz')
+                per_r['map_max'] = float(cmap.max())
+            mask, skeleton, nodes = pop['mask'], pop['skeleton'], pop['nodes_vox']
             labels, count = ndi.label(mask, np.ones((3, 3, 3), bool))
             sizes = np.bincount(labels.ravel())
-            skeleton = skeletonize(mask) > 0
-            skel_labels, _ = ndi.label(skeleton, np.ones((3, 3, 3), bool))
-            skel_sizes = np.bincount(skel_labels.ravel())
-            skeleton &= skel_sizes[skel_labels] >= a.min_skeleton_voxels
-            nodes, edges = skeleton_graph(skeleton)
-            points = edge_points_mm(edges, affine)
-            y_train = presence(train_trees, points, r, a.edge_cover)
-            p_edge = y_train.mean(0) if len(edges) else np.zeros(0)
-            nodes_mm = nib.affines.apply_affine(affine, nodes) if len(nodes) else nodes
-            lengths = [float(np.linalg.norm(np.diff(pt, axis=0), axis=1).sum()) for pt in points]
+            edges, points, y_train, p_edge = pop['edges'], pop['edge_points_mm'], pop['presence'], pop['edge_probability']
+            lengths = pop['edge_length_mm']
             tag = f'r{r:g}mm_tau{tau:g}'
             save(skeleton.astype(np.float32), affine, out / f'PopulationSkeleton_{tag}.nii.gz')
             with open(out / f'population_graph_{tag}.pkl', 'wb') as stream:
-                pickle.dump({'nodes_mm': nodes_mm, 'edges': [(int(a_), int(b_)) for a_, b_, _ in edges], 'edge_points_mm': points,
-                             'edge_probability': p_edge, 'edge_length_mm': lengths, 'radius_mm': r, 'tau': tau,
-                             'edge_cover': a.edge_cover, 'subjects': n}, stream)
+                pickle.dump({k: pop[k] for k in ('nodes_mm', 'edges', 'edge_points_mm', 'edge_probability', 'edge_length_mm',
+                                                 'radius_mm', 'tau', 'edge_cover', 'subjects')}, stream)
             skeleton_pts = np.vstack(points) if points else np.zeros((0, 3))
             high_pts = np.vstack([pt for pt, pe in zip(points, p_edge) if pe >= 0.5]) if (p_edge >= 0.5).any() else np.zeros((0, 3))
             sk_tree = cKDTree(skeleton_pts) if len(skeleton_pts) else None
