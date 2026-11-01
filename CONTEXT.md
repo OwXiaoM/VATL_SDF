@@ -1470,3 +1470,24 @@ r (RMS 1.3 mm at 2 mm, 1.9 mm at 3 mm) and 'inside the 95% ellipsoid' is trivial
 positional covariance needs node correspondence that is not defined by the radius window (e.g. junction matching in
 each subject's graph); not implemented. Median anchor distance to the node mean: test learned 1.79 mm, train LOO
 1.73 mm, test centroid-only 2.21 mm (3 mm population).
+
+### Occupancy atlas recalibration on full A4 final (job 46992, CPU 2 min; screening evidence, 6 calibration + 5 test subjects)
+
+Code: vatl_sdf/atlas_calibration.py, slurm/atlas_calibration.sh (commit 140138d). Inference only. Calibration set = the
+6 diagnostic training subjects with REFITTED (test-time) transforms; settings selected by calibration-set ROI
+log-likelihood; test numbers reported only. Output: sdf_only/analysis/20261101_a4full_atlas_calibration.
+- Uncalibrated (sigma 0): test ROI loglik -0.0448, Brier skill 0.072, ECE 0.0078; centreline coverage (median over
+  test subjects) p >= 0.1 / 0.25 / 0.5: 0.85 / 0.60 / 0.27.
+- Smoothing alone (sigma 0.5-3 mm, no recalibration): loglik -0.0446 to -0.0455, Brier skill 0.073-0.083, ECE unchanged
+  (0.0074-0.0079) => (fact) smoothing does not remove the mid-probability over-confidence.
+- Monotone recalibration: Platt at sigma 0 has slope 0.94, intercept -0.95 (odds x ~0.39, almost a pure scale-down);
+  test ECE 0.0078 -> 0.0011-0.0016, Brier skill 0.072 -> 0.091-0.099, loglik -0.0448 -> -0.0420 to -0.0426 (best test:
+  sigma 1.5 mm, -0.0420). Selected on the calibration set: sigma 3 mm + isotonic (test loglik -0.0425, Brier skill 0.091,
+  ECE 0.0009), i.e. selection on 6 subjects slightly overshoots sigma; sigma 1-2 mm is within noise of the best.
+- Trade-off (fact): recalibrated probabilities are lower, so fixed-threshold coverage drops (p >= 0.25: 0.60 -> ~0.35-0.40;
+  p >= 0.5: ~0). Coverage at a fixed threshold is not comparable across calibrated and uncalibrated maps.
+- Hypothesis for the cause: the atlas averages template-space DECODINGS, whose vessel volume exceeds the reference
+  (volume ratio 1.5 on training subjects, 2.5 at test), so p is inflated by roughly the volume ratio; observed/
+  predicted 0.5-0.65 in 0.01 < p < 0.5 is in that range. Test on the latent-6^3 model (volume ratio 2.0 at 20 epochs).
+  Not tested: a volume-matched threshold on the decoded SDF instead of SDF < 0 (inference only, would not change the
+  training objective).
