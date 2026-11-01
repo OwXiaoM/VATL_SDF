@@ -338,7 +338,9 @@ class PerturbationTests(unittest.TestCase):
         self.assertTrue((sdf[22:36, 12, 12] < 0).all())               # still connected through the attachment (x = 26)
         np.testing.assert_allclose(g['radius'][22:31], 1.); self.assertEqual(g['radius'][21], 2.)  # boundary node kept
         sdf, g = perturb(self.sdf, self.affine, self.graph, self.edges, 'thin')
-        np.testing.assert_allclose(g['radius'][[11, 12, 13, 14, 16, 17, 18, 19]], 1.)   # node 15: junction, kept
+        np.testing.assert_allclose(g['radius'][range(11, 20)], 1.)    # node 15 joins only a small branch: not an attachment
+        self.assertEqual(g['radius'][10], 2.); self.assertEqual(g['radius'][20], 2.)  # attachments to the large tube kept
+        self.assertLess(sdf[20, 12, 12], -0.5); self.assertGreater(sdf[20, 13, 13], 0.)  # thinned through the small-branch junction
 
     def test_displace(self):
         from vatl_sdf.perturbation import perturb

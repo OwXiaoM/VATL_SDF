@@ -94,11 +94,16 @@ def subject_segments(graph, centre, A, t, pop, targets, r, cover, min_large=1.2,
 
 
 # ---------------------------------------------------------------- perturbations
-def segment_geometry(graph, edge_ids, step_mm=0.2):
+def segment_geometry(graph, edge_ids, step_mm=0.2, min_large=1.2):
+    """Dense samples of the segment, its nodes and its attachment nodes: segment nodes shared with unmatched LARGE
+    edges (both endpoint radii >= min_large). Small side branches are not attachments (cut at their roots in the
+    mask by the removal tube; their graph edges stay attached to the moved / thinned nodes)."""
     sub = {'pos': graph['pos'], 'radius': graph['radius'], 'edges': graph['edges'][edge_ids]}
     points, _, rad = edge_point_samples(sub, step_mm)
     seg_nodes = np.unique(graph['edges'][edge_ids])
+    radius = np.asarray(graph['radius'], float)
     others = np.setdiff1d(np.arange(len(graph['edges'])), edge_ids)
+    others = others[(radius[graph['edges'][others, 0]] >= min_large) & (radius[graph['edges'][others, 1]] >= min_large)] if len(others) else others
     boundary = np.intersect1d(seg_nodes, np.unique(graph['edges'][others])) if len(others) else np.zeros(0, int)
     return points, rad, seg_nodes, boundary
 
