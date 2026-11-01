@@ -745,7 +745,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46887 | Test-time fitting with the PILOT A4 network (5 test + its 6 diagnostic subjects, 10 + 30 epochs) | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_gen_pilot | 0.93 | COMPLETED 56 min |
 | 46889 | Vessel-graph atlas step 1 on full A4 final (CPU) | 16 CPU, frozen 08c27c1 | sdf_only/analysis/20261101_a4full_graph_atlas | 0 | COMPLETED 2.5 min |
 | 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | 0c 0.280; test 0.318; refit 0.336; rec3 0.375/0.394; MoE1 0.585 | done (train 1 h 43, post 45 min) |
-| 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | | running |
+| 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | 0c 0.397; test 0.543; refit 0.565; rec3 0.367/0.419; MoE1 0.533 | done (train 1 h 52, post 45 min) |
 | 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | | pending |
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
@@ -1347,6 +1347,16 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   also less converged as a shared prior. Differing factors between these two: subjects (100 vs 497) and subjects per
   step (5 vs 15, 1 vs 3 GPUs); sg_s100g3 separates them. Recurrence is higher at 497 (0.375 vs 0.273) but references
   differ (497 vs 100 subjects), so this comparison is not like-for-like.
+- sg_latent6 (job 46892/46893; latent grid 256x6^3 instead of 3^3, else = sg_r20; train 1 h 52, post 45 min): 0c Dice
+  0.397, MAE 1.32, volume 1.62, component ratio 8.3 (>= 10 vox: 8.1); test Dice 0.543 / MAE 1.48 / volume 2.05 / comp 6.8;
+  train_refit 0.565; recurrence 3 mm train 0.367, test 0.419 (centroid 0.153); MoE layer-1 entropy 0.533; latent
+  median 2.60 (vs 0.88).
+  => (fact) the largest single-factor effect so far: test-time fit 0.318 -> 0.543 at matched budget, fragmentation
+  roughly halved, recurrence unchanged within noise (0.375/0.394 -> 0.367/0.419). Refit of the 6 training subjects
+  (0.565) exceeds their trained-latent fit (0.397): fresh latents against the final network fit better than the
+  latents co-trained with a moving network (fact; cause not tested). Volume over-estimation remains (2.0).
+  Hypothesis: the 3^3 latent grid limits per-subject spatial detail at 497 subjects; at 100 subjects the network
+  compensates by storing subjects in its weights (memorization), which it cannot do at 497.
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 
