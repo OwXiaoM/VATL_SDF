@@ -1316,3 +1316,29 @@ width 1536 (sg_width1536), 40 epochs (sg_r40), latent lr 2e-3 (sg_latentlr). Sub
 the 6 diagnostic subjects always included via data.subset_include): 100 (sg_s100), 250 (sg_s250); 100 with the
 condition zeroed (sg_s100nocond); 100 on 3 GPUs = 15 subjects per step (sg_s100g3). All measured with post_ablation.sh
 (0c on the 6 fixed subjects, recurrence, test-time fitting with --train-subjects fixed, inspect_run incl. MoE).
+
+### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
+
+vatl_sdf/graph_atlas.py (commit 08c27c1, tests/test_graph_atlas.py). Large vessels = graph radius >= 1.2 mm at both
+edge endpoints; trained transforms; skeleton of {c_r >= tau} -> population graph; edge occurrence = fraction of
+subjects covering >= 50% of the edge points within r. Train = first 100 training subjects with leave-one-out edge
+probabilities (the population skeleton itself is not rebuilt without them: slightly optimistic skeleton coverage).
+
+| r / tau | map max | mask vox / comps / largest | skeleton: nodes / edges / length | edge p median / frac >= 0.5 |
+| --- | ---: | --- | --- | --- |
+| 2 mm / 0.1 | 0.62 | 9.2 k / 3 / 0.85 | 15 / 13 / 283 mm | 0.24 / 0.23 |
+| 2 mm / 0.25 | 0.62 | 2.5 k / 3 / 0.47 | 12 / 10 / 130 mm | 0.41 / 0.20 |
+| 3 mm / 0.1 | 0.89 | 21.1 k / 2 / 1.00 | 17 / 16 / 362 mm | 0.49 / 0.38 |
+| 3 mm / 0.25 | 0.89 | 8.5 k / 4 / 0.86 | 13 / 11 / 234 mm | 0.59 / 0.73 |
+
+Held-out evaluation, medians (test learned / test centroid-only / train LOO learned / train LOO centroid-only):
+- r 3 mm, tau 0.1: centreline points within 3 mm of the population skeleton 0.55 / 0.19 / 0.58 / 0.22; points where
+  c_3 >= 0.25: 0.71 / 0.35 / 0.69 / 0.30; edge Brier skill 0.18 / 0.12 / 0.22 / -0.03; edge log-likelihood
+  -0.60 / -0.64 / -0.58 / -0.74 (constant -0.69); probability-weighted edge recall 0.67 / 0.34 / 0.64 / 0.22.
+- r 2 mm, tau 0.1: skeleton coverage 0.32 / 0.07 / 0.34 / 0.09; c_2 >= 0.25: 0.41 / 0.13 / 0.37 / 0.10; edge Brier
+  skill 0.22 / -0.28 / 0.12 / -0.28.
+- Facts: test subjects score like leave-one-out training subjects (no generalization gap in alignment of large
+  vessels); learned alignment beats centroid-only on every measure; the 1 mm centreline map was empty (max < 0.25),
+  at 2/3 mm it reaches 0.62/0.89. The population graph is small (13–16 edges, 0.3 m of centreline): only the most
+  recurrent large vessels survive the threshold. Step (2) (node/edge atlas) not started yet; decision after the
+  connectivity/radius atlas.
