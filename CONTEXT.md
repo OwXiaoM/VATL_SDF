@@ -761,7 +761,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47042 | ANTs check: binaries on a compute node + timing of one affine and one SyN (clipped SDF, IXI569 -> IXI414, both ANTs-template reserve) (CPU, QOS dev) | 8 CPU, frozen 9d93652 | sdf_only/analysis/20261101_ants_timing | 0 | COMPLETED 8.8 min: affine 188 s, SyN 333 s (8 threads, native grid) |
 | 47046 | Deviation pipeline real-data SMOKE (not a result): null 4 / calibration 2 diagnostic subjects + 5 test subjects from the 20261101_l6full_gen refits (CPU, QOS dev) | 16 CPU, frozen 9cfce5c | sdf_only/analysis/20261101_dev_smoke (inputs 20261101_dev_smoke_inputs) | 0 | COMPLETED 8 min, 21 GB RAM |
 | 47050 | Deviation statistics, full run: null 100 (LOO, refitted), calibration 50, validation 20; decoder / learned / centroid; uniform + age sigma 7/5/10 (CPU) | 16 CPU, 240 GB, frozen 9cfce5c | sdf_only/analysis/20261101_deviation | 0 | COMPLETED 17.5 min, 28 GB; superseded by v2 (Holm/BH resolution issue, see Step 1 results) |
-| 47054 | Deviation statistics v2: as 47050 + family min-p calibrated on the null + population-referenced element p-values (BH) (CPU) | 16 CPU, frozen 51b2576 | sdf_only/analysis/20261101_deviation_v2 | 0 | submitted |
+| 47054 | Deviation statistics v2: as 47050 + family min-p calibrated on the null + population-referenced element p-values (BH) (CPU) | 16 CPU, frozen 51b2576 | sdf_only/analysis/20261101_deviation_v2 | 0 | COMPLETED 51 min (calibration 39 min on a shared node) |
 | 47058-47077 | Null extension: test-time refits of 200 more training subjects (configs/evaluation/deviation_sets_null_extra.json, seed 0), chunks of 10 (QOS normal/dev alternating) | 20 x 1 L40S, frozen 2389528 | sdf_only/analysis/20261101_dev_refit_null_extra | | submitted |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
@@ -1626,3 +1626,54 @@ edge per copy; 20 validation subjects; methods decoder, learned, centroid; repor
 FPR; report counts if < ~10 subjects qualify). (2) APPROVED null extension by up to 200 refitted training subjects
 (outside null/calibration/ANTs-template; seed 0; existing sets unchanged); rerun with null 100 vs 300. Still not
 allowed: any ANTs registration/template, MRA variants, objective changes, modifying/deleting data or outputs.
+
+### Step 1 / Step 2 (no ANTs) results: deviation statistics v2 (job 47054; screening evidence)
+
+Data: model 21_a4_full_latent6 final; null = 100 training subjects (refitted, exact LOO), calibration 50, validation =
+first 20 YAML val IDs (refitted; never used for selection). Population for every method: all 497 training subjects
+minus the query. Output sdf_only/analysis/20261101_deviation_v2 (deviation.json, scores.tsv, subjects/<id>/ reports +
+validation maps). v1 (job 47050, same scores) is kept; v2 adds the family min-p and population-referenced element
+p-values.
+
+Deviation-report format (per subject, per method, uniform and sigma-7 weighting; subjects/<id>/report_<method>_<w>.json):
+scores with empirical p (voxel NLL/Brier ROI+FOV uncal/cal, centreline uncoverage 0.1/0.25/0.5, edge surprise total,
+connectivity surprise totals graph/mask, radius |z| and abs error (-SDF native/scaled, graph; floor nodes separate),
+affine d2), Holm flag, family min-p p-value; per-edge table (p_edge, present, surprise, null and population p, BH
+flags, connectivity surprise/p/flags per criterion); per-node table (radius z, percentile, floor, p, BH flags); list
+of absent expected edges with evidence class. Maps (validation only): VoxelSurprise_<method>, EdgeSurprise_<method>_<pop>,
+NodeRadiusZ_<method>_<pop>.
+
+Calibration selected on the 50 calibration subjects (ROI log-likelihood per voxel, uncal -> selected):
+decoder sigma 1 mm + isotonic (-0.0356 -> -0.0345); learned label atlas sigma 1 mm, no recalibration (-0.0346 ->
+-0.0343: a label-based atlas is already calibrated); centroid sigma 2 mm + isotonic (-0.0383 -> -0.0379). Sigma-7 weighting
+selects the same except decoder sigma 2 mm. ESS with age kernel sigma 7 / 5 / 10: median ~205 / 151 / 262 (min 82 /
+47 / 138 for null subjects at the age extremes).
+
+False-positive rates (fraction of subjects with p <= 0.05; nominal 0.05). Facts:
+- Per score on the null (LOO among the null subjects) the rate is 0.05 or below by construction (exchangeable ranks);
+  it checks the procedure, not the model.
+- Validation (n = 20, 1 subject = 0.05; 95% binomial CI for a true rate of 0.05 is 0-0.25), uniform weighting:
+  decoder NLL 0.00, uncoverage 0.05; learned NLL 0.00, uncoverage(0.25) 0.10, edge total 0.00, connectivity graph 0.00,
+  mask 0.05, radius |z| 0.00, affine d2 0.00; centroid NLL 0.25 (5/20), others 0.00-0.05. Sigma 7: learned 0.00-0.05
+  for all primary scores; centroid NLL 0.25.
+- Subject-level family test: Holm over 6-7 primary scores cannot reject with 100 null subjects (min p 1/101 >
+  0.05/7): rate 0.00 everywhere except decoder (2 scores). Family min-p calibrated on the null: decoder 0.05 / 0.05
+  (null / validation), learned 0.00 / 0.05, centroid 0.05 / 0.00. The learned 0.00 on the null is conservative: many
+  null subjects share the smallest attainable min-p (ties at 1/100), so the null-calibrated threshold is not reached.
+- Element level, BH q = 0.05 within family, primary population: null-referenced p (resolution 1/100): subjects with
+  any discovery 0.01 (null) / 0.05 (validation) learned, 0.01 / 0.00 centroid. Population-referenced p: 0.03 / 0.05
+  learned, 0.03 / 0.00 centroid; fraction of elements with p <= 0.05: edge presence 0 (no population edge has
+  p_edge > 0.95, so a single absence is never significant), connectivity 0.003-0.006, radius 0.009-0.025.
+- Validation scores are close to the null scores (medians, learned: NLL 0.034 vs 0.037, edge total 8.1 vs 8.9,
+  radius |z| 0.71 vs 0.65, affine d2 9.0 vs 8.4): no systematic shift between refitted training and unseen subjects.
+- Centroid vs learned (one factor = alignment, real-label statistics): centroid voxel NLL is higher (0.038 vs 0.034
+  null median) and flags 25% of validation subjects at alpha 0.05 -> the centroid null (training subjects) is not
+  exchangeable with validation subjects for voxel scores (hypothesis: residual misalignment interacts with
+  subject/site differences); the learned affine does not show this (0.00).
+- Absent expected edges (p_e >= 0.5, primary population, uniform): learned, null 182 cases: graph defect 46%,
+  radius below 1.2 mm 38%, displaced (within 2r) 7%, absent 8%; validation 34: 38% / 38% / 9% / 15%. Centroid: fewer
+  expected edges (population less sharp). Fact: most 'missing' large edges have vessel in the mask or a thinner graph
+  edge nearby; true absence (or segmentation loss) is the minority.
+Hypotheses: (1) element-level sensitivity for presence is structurally limited by population variability (p_edge <=
+0.92); connectivity and radius are the element families that can reach significance. (2) A larger null (300)
+reduces ties and makes the subject-level family test less conservative (being tested).

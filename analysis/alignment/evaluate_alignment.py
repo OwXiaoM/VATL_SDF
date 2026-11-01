@@ -20,7 +20,8 @@ from vatl_sdf.model import SDFModel
 
 def subject_geometry(args):
     row, min_radius = args
-    image = nib.load(row['SDF'])
+    from vatl_sdf.sources import load_image
+    image = load_image(row['SDF'])
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     if sdf.ndim == 4:
         sdf = sdf[..., 0]
