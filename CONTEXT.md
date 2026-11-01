@@ -765,7 +765,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47058-47077 | Null extension: test-time refits of 200 more training subjects (configs/evaluation/deviation_sets_null_extra.json, seed 0), chunks of 10 (QOS normal/dev alternating) | 20 x 1 L40S, frozen 2389528 | sdf_only/analysis/20261101_dev_refit_null_extra | | running (14/20 completed, rest running/pending) |
 | 47081 | Perturbation manifest (CoW centre, targets, eligibility, 332 copies) (CPU, QOS dev) | 4 CPU, frozen fad1ebb | sdf_only/analysis/20261101_perturbation/manifest.json | 0 | COMPLETED 10 s |
 | 47082-47115 | Perturbed-copy refits (34 chunks of 10, manifest priority order: removal, thin, displace 3, displace 5; in-memory copies regenerated with commit 007f163) | 34 x 1 L40S, QOS normal/dev, frozen 007f163 | sdf_only/analysis/20261101_perturbation/refit | | completed (34/34, ~12-13 min each) |
-| 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | running |
+| 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | submitted (dependency) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
@@ -1699,3 +1699,52 @@ reduces ties and makes the subject-level family test less conservative (being te
   thinning / displacement keep the original vessel within r + 1 mm of attachments; displacement tapered over 3 mm
   from attachments (realised max node shift 2.7-3.0 mm for 3 mm, 4.4-5.0 mm for 5 mm). Small side branches
   attached inside a segment are cut at their roots in the mask (graph edges stay attached).
+
+### Perturbation sensitivity results, null 100 (job 47116, CPU 22 min; screening evidence)
+
+Output sdf_only/analysis/20261101_deviation_perturb_null100 (deviation.json `sensitivity`, `fpr`). 332 copies scored
+(83 subject-edge pairs x 4), each copy refitted from scratch (jobs 47082-47115); uniform weighting, alpha = q = 0.05.
+Rates are per copy (n = 83 per perturbation). "Baseline" = the same elements / subject test on the unperturbed
+validation subject (matched false-positive reference). Decoder has only the subject-level test (no graph elements).
+
+Element detection: any family flags a population element overlapping the perturbed path (BH within family).
+Population-referenced / null-referenced:
+
+| method | baseline | remove | thin 50% | displace 3 mm | displace 5 mm |
+|---|---|---|---|---|---|
+| learned  | 0.02 / 0.02 | **0.43** / 0.10 | 0.04 / 0.00 | 0.05 / 0.01 | 0.05 / 0.01 |
+| centroid | 0.00 / 0.00 | **0.28** / 0.02 | 0.02 / 0.00 | 0.06 / 0.00 | 0.04 / 0.00 |
+
+Subject detection (family min-p, null-calibrated); per copy, (subjects with >= 1 detected copy / 20):
+
+| method | validation FPR | remove | thin | displace 3 | displace 5 |
+|---|---|---|---|---|---|
+| decoder  | 0.05 (1/20) | 0.02 (1) | 0.02 (1) | 0.01 (1) | 0.01 (1) |
+| learned  | 0.05 (1/20) | 0.28 (12) | 0.12 (4) | 0.13 (5) | 0.10 (3) |
+| centroid | 0.00 (0/20) | 0.14 (7) | 0.01 (1) | 0.01 (1) | 0.00 (0) |
+
+Removal, per edge (learned, element population-referenced / subject): e4 (p 0.92, n 18) 0.72 / 0.33; e14 (0.91, 18)
+0.44 / 0.39; e6 (0.77, 17) 0.59 / 0.29; e11 (0.62, 12) 0.00 / 0.08; e5 (0.57, 9) 0.22 / 0.33; e7 (0.52, 9) 0.33 / 0.11.
+Centroid removal: e4 0.22, e14 0.22, e6 0.41, e11 0.33, e5 0.11, e7 0.33 (element, population-referenced).
+
+FPR (same run, identical to v2 for null 100): family min-p null / validation: decoder 0.05 / 0.05, learned 0.00 / 0.05,
+centroid 0.05 / 0.00. Element BH any-family (r3mm) population-ref null / validation: learned 0.03 / 0.05, centroid
+0.03 / 0.00; null-ref learned 0.01 / 0.05, centroid 0.01 / 0.00.
+
+Facts:
+- Edge-presence family: 0 detections in every condition, including removal (target absent after removal in 98% of
+  learned copies). Structural: the population-referenced p for an absent edge is 1 - p_e >= 0.08 for every target,
+  above any BH threshold at q = 0.05; the null-referenced p is limited by ties among 100 null subjects.
+- Removal is detected mainly through node radius |z| at the target's end nodes (learned 0.43 radius vs 0.10 mask
+  connectivity, 0.01 graph connectivity), i.e. the SDF-derived radius at the population node collapses.
+- Thinning to 50% (all targets fall below the 1.2 mm large-vessel threshold; target present after in 2%) is rarely
+  detected (<= 0.04 element): the population radius distribution at these nodes is wide enough to contain half radius.
+- Displacement: with presence radius r = 3 mm, the target stays 'present' after a 3 mm shift in 55% (learned), after
+  5 mm in 34%; detection is at baseline level.
+- Learned > centroid for removal (0.43 vs 0.28 element, 0.28 vs 0.14 subject); decoder subject-level test is
+  insensitive to all perturbations (equal to baseline).
+- Null-referenced element p-values detect far less than population-referenced (0.10 vs 0.43 for learned removal).
+Hypotheses: (1) the null-referenced loss is resolution (1/101) under BH over ~20-60 elements; null 300 should help
+(job 47117). (2) Subject-level learned detection of thinning/displacement (0.10-0.13 vs baseline 0.07 per copy)
+partly reflects refit variability of the copies (each copy has its own refitted transform) rather than the
+perturbation; not separated here.
