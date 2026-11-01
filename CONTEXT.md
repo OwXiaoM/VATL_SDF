@@ -742,7 +742,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46865 | inspect_run on the full A4 run (reference steps 20k–35k) | 1 L40S, frozen a8b603c | sdf_only/analysis/20261031_a4full_inspect_run | 0.01 | COMPLETED 32 s |
 | 46885 | Scale-gap probe: per-subject SDF L1 with latent/condition swaps, all checkpoints of pilot A4 and full A4, 100 shared subjects | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_probe | 0.07 | COMPLETED 4 min |
 | 46886 | inspect_run on the Step 2 A4 pilot | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_inspect_pilot | 0.01 | COMPLETED |
-| 46887 | Test-time fitting with the PILOT A4 network (5 test + its 6 diagnostic subjects, 10 + 30 epochs) | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_gen_pilot | | running |
+| 46887 | Test-time fitting with the PILOT A4 network (5 test + its 6 diagnostic subjects, 10 + 30 epochs) | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_gen_pilot | 0.93 | COMPLETED 56 min |
 | 46889 | Vessel-graph atlas step 1 on full A4 final (CPU) | 16 CPU, frozen 08c27c1 | sdf_only/analysis/20261101_a4full_graph_atlas | 0 | COMPLETED 2.5 min |
 | 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | | running |
 | 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | | running |
@@ -1301,6 +1301,11 @@ Facts:
 - Pilot network, test-time fitting of the 5 test subjects (training per-subject budget): Dice 0.162 / 0.331 / 0.361 /
   0.380 / 0.384 at test-time epoch 10 / 15 / 20 / 30 / 40; MAE 1.19 mm; volume ratio 0.49 — versus 0.921 on its own
   training subjects. Full A4 network on the same test subjects: 0.373 (volume ratio 2.5).
+- Pilot network, its own 6 training subjects REFITTED from scratch (latent 0, identity transform, network frozen,
+  same procedure as the test subjects): Dice 0.201 / 0.798 / 0.928 / 0.937 / 0.938 at test-time epoch 10 / 15 / 20 / 30 /
+  40 (MAE 0.53 mm, component ratio 1.07). Same procedure, unseen subjects: 0.38. Recurrence (3 mm) of the pilot:
+  train vs train 0.313, test vs train 0.40, refit vs train 0.343.
+  => the stored subjects are recalled from their age/sex condition plus a freshly fitted latent; new subjects are not.
 - Conclusion (fact at this scale): the pilot's training fit is memorization. Its network uses the age/sex condition
   (a unique key for 100 subjects) together with the latent to store each subject in the shared weights; swapping
   only the condition destroys the fit as much as removing the latent. That capacity does not transfer to new
