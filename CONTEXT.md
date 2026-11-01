@@ -753,9 +753,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | 0c 0.680; test 0.354; refit 0.421; rec3 0.21/0.29 | done (train 1 h 00, post 44 min) |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | 0c 0.299; test 0.353; refit 0.385; rec3 0.369/0.452; MoE1 0.667 | done (train 2 h 14, post 40 min) |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | 0c 0.629; test 0.274; refit 0.554; rec3 0.24/0.36; MoE1 0.92 | done (train 51 min, post 40 min) |
-| 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | | COMPLETED 3 h 40 (15:12 -> 18:51) |
-| (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | submitted 18:52: gen 47005, shards 47006-47009, merge 47010, graph 47011, attribute 47012, post 47013 |
-| (auto) | Watcher (scratchpad autosubmit_l6_cal.sh, frozen 140138d): after the latent-6^3 prob-atlas merge -> atlas recalibration (CPU, QOS dev) | | sdf_only/analysis/20261101_l6full_atlas_calibration | | submitted: job 47019 |
+| 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | test 0.757; trained 0.810; rec3 0.393/0.481; MoE1 0.554 | COMPLETED 3 h 40 (15:12 -> 18:51) |
+| (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | submitted 18:52: gen 47005, shards 47006-47009, merge 47010, graph 47011, attribute 47012, post 47013; all COMPLETED by 19:15 (gen 52 min, shards 20 min) |
+| (auto) | Watcher (scratchpad autosubmit_l6_cal.sh, frozen 140138d): after the latent-6^3 prob-atlas merge -> atlas recalibration (CPU, QOS dev) | | sdf_only/analysis/20261101_l6full_atlas_calibration | | done: job 47019 COMPLETED 3 min |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1492,3 +1492,47 @@ log-likelihood; test numbers reported only. Output: sdf_only/analysis/20261101_a
   predicted 0.5-0.65 in 0.01 < p < 0.5 is in that range. Test on the latent-6^3 model (volume ratio 2.0 at 20 epochs).
   Not tested: a volume-matched threshold on the decoded SDF instead of SDF < 0 (inference only, would not change the
   training objective).
+
+### Recommended recipe at full scale: 21_a4_full_latent6 (job 46950 + 47005-47013, 47019; screening evidence, one seed)
+
+Training 3 h 40 (59,760 steps, 3 L40S), stable: SDF L1 decreases monotonically to 0.043 (full A4: 0.093); latent
+median 2.75; MoE layer-1 entropy 0.79 / 0.62 / 0.58 / 0.55 at epochs 10 / 20 / 30 / 36 (full A4: 0.92 -> 0.55).
+Same evaluation pipeline and subjects as full A4 (6 training diagnostic subjects, 5 test subjects, 36 test-time epochs).
+
+| | full A4 (3^3) | full A4 + latent 6^3 |
+| --- | --- | --- |
+| trained fit, 6 subj: Dice / MAE / volume / comp(>=10) / comp(all) | 0.393 / 1.39 / 1.52 / 11.3 / - | 0.810 / 0.83 / 1.18 / 3.0 / 1.9 |
+| test-time fit TEST: Dice / MAE / volume / comp(>=10) | 0.373 / 1.64 / 2.54 / 10.2 | 0.757 / 1.05 / 1.39 / 2.4 |
+| test-time fit TRAIN_REFIT: Dice | 0.387 | 0.776 |
+| test Dice at test-time epoch 12 / 20 / 36 | 0.29 / 0.36 / 0.37 | 0.60 / 0.73 / 0.76 |
+| recurrence 3 mm train vs train / test vs train (learned) | 0.407 / 0.437 | 0.393 / 0.481 |
+| recurrence 3 mm centroid-only (train / test) | 0.135 / 0.153 | 0.135 / 0.153 |
+| prob. atlas TEST ROI Brier skill / loglik / ECE (occupancy) | 0.072 / -0.0448 / 0.0078 | 0.100 / -0.0399 / 0.0033 |
+| same, centroid-only control | -0.040 / -0.0511 / 0.0092 | -0.006 / -0.0479 / 0.0050 |
+| soft occupancy (tau 0.5) TEST ROI Brier skill | -0.020 | 0.086 |
+| test centreline coverage occupancy >= 0.1 / 0.25 / 0.5 | 0.85 / 0.60 / 0.27 | 0.85 / 0.59 / 0.23 |
+| occupancy >= 0.25: voxels / components / largest | 10.4k / 3 / 0.91 | 8.2k / 5 / 0.90 |
+
+Facts:
+- The trained-vs-test gap is closed at full scale: trained 0.81, refit 0.78, test 0.76 (pilot: 0.92 trained vs 0.38 test).
+- Recurrence: test vs train 0.481 (meets the 0.41-0.44 target); train vs train 0.393 is just below 0.41 (full A4
+  0.407; alignment job on the first 100 subjects: 0.384). Recurrence depends on training length (sg_r40), not latent size.
+- Reliability (learned, ROI, test): observed / predicted in 0.01 < p < 0.5 is 0.71-0.96 (full A4: 0.50-0.65), with the
+  decoded volume ratio down from 1.5 to 1.18 (training) — consistent with the volume-inflation hypothesis (not causal proof).
+- Recalibration (job 47019): selected sigma 2 mm + isotonic. Test loglik -0.0399 -> -0.0394 to -0.0397, ECE 0.0033 ->
+  0.0006-0.0012, Brier skill 0.100 -> 0.101-0.105. Platt at sigma 0: slope 1.02, intercept -0.47 (odds x 0.63, vs x 0.39
+  on full A4). Gains are now small; the uncalibrated map is close to calibrated.
+- Graph atlas (47011): essentially unchanged vs full A4 (r3/tau0.1: 18 nodes, 16 edges, 370 mm; test skeleton coverage
+  0.55, c_3 >= 0.25 0.72; edge Brier skill 0.41 vs 0.18; train LOO 0.58 / 0.69 / 0.20). Expected: it is built from the
+  training graphs mapped by the transforms, whose recurrence is similar.
+- Attribute atlas (47012): connectivity P(connected | both) graph 0.98-0.99, mask 1.0; mask-not-graph 0-1.2%; radius
+  (-SDF, 3 mm) test abs error 0.15 mm, |z| 0.62 (train LOO 0.14 / 0.62); node-position limitation unchanged.
+- Wall-clock: Priority 1 from the first diagnosis job (08:44) to the last evaluation (19:51) = 11 h 07; full-scale run +
+  evaluation chain 15:12 -> 19:51 = 4 h 39.
+
+Scale-gap cause (summary): FACT: the pilot's 0.92 is memorization (condition/latent key; refit of its own subjects 0.94,
+unseen 0.38; memorization ends between 100 and 250 subjects). FACT (screening): at full scale the dominant limiting factor
+was the 3^3 latent grid (one-factor 0.318 -> 0.543 at 20 epochs; full scale 0.373 -> 0.757); width 1536 (+0.04), length x2
+(+0.05, + recurrence) and latent lr x4 (-0.09) are secondary or harmful; network steps per subject count matter
+(sg_s100g3). HYPOTHESIS: a 3^3 latent grid cannot carry per-subject spatial detail, so with 100 subjects the network stores
+subjects in its weights instead, which does not transfer and is impossible at 497.
