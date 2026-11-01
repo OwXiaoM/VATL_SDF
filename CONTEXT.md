@@ -744,7 +744,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46886 | inspect_run on the Step 2 A4 pilot | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_inspect_pilot | 0.01 | COMPLETED |
 | 46887 | Test-time fitting with the PILOT A4 network (5 test + its 6 diagnostic subjects, 10 + 30 epochs) | 1 L40S, frozen fd206c0 | sdf_only/analysis/20261101_scale_gap_gen_pilot | 0.93 | COMPLETED 56 min |
 | 46889 | Vessel-graph atlas step 1 on full A4 final (CPU) | 16 CPU, frozen 08c27c1 | sdf_only/analysis/20261101_a4full_graph_atlas | 0 | COMPLETED 2.5 min |
-| 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | | running |
+| 46890/46891 | sg_r20: 14_a4_r20 (reference, 497 subj, 20 epochs) + post (0c, alignment, generalization, inspect) | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r20, analysis/20261101_sg_r20 | 0c 0.280; test 0.318; refit 0.336; rec3 0.375/0.394; MoE1 0.585 | done (train 1 h 43, post 45 min) |
 | 46892/46893 | sg_latent6: 15_a4_r20_latent6 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latent6, analysis/20261101_sg_latent6 | | running |
 | 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | | pending |
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
@@ -1337,6 +1337,16 @@ references = that run's own training subjects, so 100-subject runs use 100 refer
   test fit (0.39 -> 0.35) and recurrence. So the condition is not the only memorization route here: the latent
   carries most of the trained fit without it (the earlier swap_cond probe was on the 40k-step pilot). The refit-minus-
   test gap persists (0.51-0.39 with, 0.42-0.35 without). Zeroing the condition is not a candidate fix.
+- sg_r20 reference (job 46890/46891; 497 subj, 20 epochs, 3 GPUs, 33.2k steps; train 1 h 43, post 45 min): 0c Dice
+  0.280, MAE 1.64, volume 1.64, component ratio 17.9 (>= 10 vox: 12.9); test Dice 0.318 / MAE 1.76 / volume 2.36 /
+  comp 13.2; train_refit 0.336; recurrence 3 mm train 0.375, test 0.394 (centroid 0.153); MoE layer-1 entropy 0.585;
+  latent median 0.88. (Full A4 at 36 epochs: test 0.373, recurrence 0.41/0.44.)
+  => (fact) at matched per-subject updates (~1000 each) and matched test-time budget (20 epochs), the 100-subject
+  network gives a BETTER test-time fit than the 497-subject one (0.394 vs 0.318; MAE 1.34 vs 1.76; volume 1.23 vs 2.36)
+  despite fewer network steps (20k vs 33.2k). So the scale gap is not only memorization: the 497-subject network is
+  also less converged as a shared prior. Differing factors between these two: subjects (100 vs 497) and subjects per
+  step (5 vs 15, 1 vs 3 GPUs); sg_s100g3 separates them. Recurrence is higher at 497 (0.375 vs 0.273) but references
+  differ (497 vs 100 subjects), so this comparison is not like-for-like.
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 
