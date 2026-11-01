@@ -756,6 +756,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46950 | FULL A4 + latent 6^3 (21_a4_full_latent6): 497 subj, 36 epochs = 59,760 steps, run horizon (recommended-recipe candidate) | 3 L40S, frozen 9f0670f | sdf_only/runs/21_a4_full_latent6 | test 0.757; trained 0.810; rec3 0.393/0.481; MoE1 0.554 | COMPLETED 3 h 40 (15:12 -> 18:51) |
 | (auto) | Watcher (scratchpad autosubmit_l6.sh, frozen 9f0670f): at step 59,760 -> gen (36 ep) + 4 prob-atlas shards + merge, graph atlas, attribute atlas (CPU, QOS dev), post (0c, alignment, inspect) | | sdf_only/analysis/20261101_l6full_* | | submitted 18:52: gen 47005, shards 47006-47009, merge 47010, graph 47011, attribute 47012, post 47013; all COMPLETED by 19:15 (gen 52 min, shards 20 min) |
 | (auto) | Watcher (scratchpad autosubmit_l6_cal.sh, frozen 140138d): after the latent-6^3 prob-atlas merge -> atlas recalibration (CPU, QOS dev) | | sdf_only/analysis/20261101_l6full_atlas_calibration | | done: job 47019 COMPLETED 3 min |
+| 47021-47024 | Deviation stage: per-subject hard decodings of all 497 training subjects (4 shards, --save-subjects; bit-packed) on 21_a4_full_latent6 final (QOS dev) | 4 x 1 L40S, frozen 255addf | sdf_only/analysis/20261101_dev_decodings | | submitted |
+| 47025-47041 | Deviation stage: test-time refits (align 10 / total 36 / 50 steps / horizon 36), chunks of 10: validation x2 (first 20 YAML val IDs), null x10, calibration x5 (configs/evaluation/deviation_sets.json) | 17 x 1 L40S, QOS normal/dev alternating, frozen 255addf | sdf_only/analysis/20261101_dev_refit | | submitted |
+| 47042 | ANTs check: binaries on a compute node + timing of one affine and one SyN (clipped SDF, IXI569 -> IXI414, both ANTs-template reserve) (CPU, QOS dev) | 8 CPU, frozen 9d93652 | sdf_only/analysis/20261101_ants_timing | 0 | submitted |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
 | 46908 | Connectivity + radius atlas on full A4 final (CPU; moved to QOS dev, 2 h) | 16 CPU, frozen 9d8fd5f | sdf_only/analysis/20261101_a4full_attribute_atlas | 0 | COMPLETED 1.3 min |
 | 46909 | Same + node/edge atlas (node position, covariance) (CPU, QOS dev) | 16 CPU, frozen 1af803e | sdf_only/analysis/20261101_a4full_attribute_atlas_v2 | 0 | COMPLETED 1.3 min |
@@ -1543,7 +1546,7 @@ Fixed: model 21_a4_full_latent6 final (step 59,760, job 46950); test-time fit = 
 total 36, 50 steps/epoch, horizon 36); population graph r3mm_tau0.1 (primary), r2mm_tau0.1; edge cover 0.5; radius
 >= 1.2 mm; path factor 3, min limit 2 mm, snap 1 mm; ROI dilation 3. Nothing selected or fitted on validation subjects.
 
-### Step 0: plan (written 2026-11-01; WAITING for user confirmation; nothing implemented or submitted)
+### Step 0: plan (written 2026-11-01; approved with changes, see below)
 
 Facts used for costing: test-time fit ~225 GPU-s per subject on one L40S (5 test 1127 s, 6 refit 1352 s); decoding all
 497 subjects on the template grid = 4 x 20 GPU-min; ANTs 2.6.4 binaries present (antsRegistration,
@@ -1570,3 +1573,11 @@ ANTs template from T on clipped SDF; all 497 + validation registered to it. Est.
 Step 3: specificity (FPR on IXI LOO null and validation); synthetic perturbation sensitivity test proposed only
 (edge removal, segment thinning, segment displacement on in-memory copies); decomposition of flagged deviations into
 registration residual / graph defect / mask absence.
+
+User decisions on the plan (2026-11-01): run Step 1 in full and, from Step 2, only centroid translation + learned affine
+(label/graph-based) plus the decoder atlas row. ANTs affine and SyN DEFERRED (only one timing check allowed); synthetic
+perturbation test DEFERRED (proposal only). Validation = first 20 YAML val IDs. Sets null 100 / calibration 50 / ANTs
+template 100, disjoint, seed 0, 6 diagnostic subjects excluded (from all three sets; frozen in
+configs/evaluation/deviation_sets.json, commit 255addf). ANTs input: clipped SDF primary, mask secondary; no MRA variant;
+do not use or modify ants-2.6.4/atlas/ants_output. alpha = 0.05 (subject scores), q = 0.05 (edges/nodes), age kernel
+sigma 7 y (5, 10 as checks).
