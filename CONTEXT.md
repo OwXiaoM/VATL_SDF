@@ -1536,3 +1536,37 @@ was the 3^3 latent grid (one-factor 0.318 -> 0.543 at 20 epochs; full scale 0.37
 (+0.05, + recurrence) and latent lr x4 (-0.09) are secondary or harmful; network steps per subject count matter
 (sg_s100g3). HYPOTHESIS: a 3^3 latent grid cannot carry per-subject spatial detail, so with 100 subjects the network stores
 subjects in its weights instead, which does not transfer and is impossible at 497.
+
+## Stage: deviation statistics + alignment comparison (user request 2026-11-01 evening; no new training)
+
+Fixed: model 21_a4_full_latent6 final (step 59,760, job 46950); test-time fit = generalization settings (align 10,
+total 36, 50 steps/epoch, horizon 36); population graph r3mm_tau0.1 (primary), r2mm_tau0.1; edge cover 0.5; radius
+>= 1.2 mm; path factor 3, min limit 2 mm, snap 1 mm; ROI dilation 3. Nothing selected or fitted on validation subjects.
+
+### Step 0: plan (written 2026-11-01; WAITING for user confirmation; nothing implemented or submitted)
+
+Facts used for costing: test-time fit ~225 GPU-s per subject on one L40S (5 test 1127 s, 6 refit 1352 s); decoding all
+497 subjects on the template grid = 4 x 20 GPU-min; ANTs 2.6.4 binaries present (antsRegistration,
+antsMultivariateTemplateConstruction2.sh, antsApplyTransforms), antspyx 0.6.3 already in the torch env (not yet run on a
+compute node); SDF images 256x256x100 at 0.94x0.94x0.8 mm; CPU budget per QOS 128 cores / 4 jobs (l40s nodes 32 cores).
+
+Subject sets (proposal): from the 497 training IDs, disjoint random sets (seed 0): N = 100 null subjects (LOO,
+refitted), C = 50 calibration subjects (refitted; reselect sigma/method), T = 100 ANTs template subjects (never
+queried). Validation: first 20 YAML validation IDs (open question: 20 vs 55).
+
+Step 1 (deviation report + LOO null): new GPU job re-decodes all 497 training subjects saving per-subject hard
+occupancy bit-packed (~0.9 MB/subject, new directory) -> exact LOO occupancy and age-weighted maps (no 1/N bias).
+Per-location maps + subject scores: ROI/FOV voxel loglik and Brier (uncalibrated and calibrated), centreline coverage
+at 0.1/0.25/0.5, per-edge presence vs p_e with surprise and total, connectivity surprise (graph and mask), per-node
+radius |error|, robust z, percentile (native, det^(1/3)-scaled; floor nodes separate), affine Mahalanobis vs training.
+Empirical p = (1 + #null >= score) / (N + 1); per-edge/per-node element-wise empirical p then BH-FDR within subject;
+subject-level FPR at nominal alpha per score and Holm across the score family. Remaining bias: the network was trained
+on the null subjects (refit 0.776 vs test 0.757), not removable by LOO; validation FPR is the unbiased check.
+
+Step 2 (alignment, one factor): centroid translation / learned affine / ANTs affine template / ANTs SyN template; all
+statistics from real labels + graphs mapped by each method on a 1 mm 240x240x120 grid; decoder atlas as separate row.
+ANTs template from T on clipped SDF; all 497 + validation registered to it. Est. ~20 h wall for SyN on ~64 cores.
+
+Step 3: specificity (FPR on IXI LOO null and validation); synthetic perturbation sensitivity test proposed only
+(edge removal, segment thinning, segment displacement on in-memory copies); decomposition of flagged deviations into
+registration residual / graph defect / mask absence.
