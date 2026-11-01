@@ -749,7 +749,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 46894/46895 | sg_width1536: 16_a4_r20_width1536 + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_width1536, analysis/20261101_sg_width1536 | | pending |
 | 46896/46897 | sg_r40: 17_a4_r40 (40 epochs) + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_r40, analysis/20261101_sg_r40 | | pending |
 | 46898/46899 | sg_latentlr: 18_a4_r20_latentlr + post | 3 L40S + 1, frozen 73d5426 | sdf_only/runs/sg_latentlr, analysis/20261101_sg_latentlr | | pending |
-| 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | | running |
+| 46900/46901 | sg_s100: 19_a4_subset, 100 subj (incl. the 6), 20k steps, 1 GPU + post (generalization, inspect) | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100 | 0c 0.755; test 0.394; refit 0.511; rec3 0.27/0.37 | done (train 1 h 00, post 47 min) |
 | 46902/46903 | sg_s100nocond: 20_a4_subset_nocond, 100 subj, condition zeroed + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100nocond | | pending |
 | 46904/46905 | sg_s250: 19_a4_subset, 250 subj, 50k steps + post | 1 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s250 | | pending |
 | 46906/46907 | sg_s100g3: 19_a4_subset, 100 subj on 3 GPUs (15 per step), 6800 steps + post | 3 L40S + 1, frozen 73d5426 | sdf_only/pilots/20261101_sg_s100g3 | | pending |
@@ -1322,6 +1322,14 @@ width 1536 (sg_width1536), 40 epochs (sg_r40), latent lr 2e-3 (sg_latentlr). Sub
 the 6 diagnostic subjects always included via data.subset_include): 100 (sg_s100), 250 (sg_s250); 100 with the
 condition zeroed (sg_s100nocond); 100 on 3 GPUs = 15 subjects per step (sg_s100g3). All measured with post_ablation.sh
 (0c on the 6 fixed subjects, recurrence, test-time fitting with --train-subjects fixed, inspect_run incl. MoE).
+
+Scale-gap ablation results (table: `python -m analysis.scale_gap.ablation_table --runs name=measure_dir ...`; recurrence
+references = that run's own training subjects, so 100-subject runs use 100 references vs 497; screening evidence):
+- sg_s100 (job 46900/46901; 100 subj incl. the 6, 20 epochs, 1 GPU): 0c Dice 0.755, MAE 0.85, volume 1.21, component
+  ratio 1.36 (>= 10 vox: 2.98); test-time test Dice 0.394 / MAE 1.34 / volume 1.23 / comp(>=10) 3.6; train_refit 0.511;
+  recurrence 3 mm train 0.273, test 0.370 (centroid-only 0.150); MoE layer-1 entropy 0.83; latent median 0.72.
+  => fewer subjects raise the trained fit (0.76 at 20 epochs vs 0.39 full) but not the test-time fit (0.39 vs 0.37), and
+  lower recurrence (0.27 vs 0.41): consistent with memorization (hypothesis-level for this run alone).
 
 ### Probabilistic vessel-graph atlas, step 1, on full A4 final (job 46889, CPU 2.5 min; screening evidence)
 

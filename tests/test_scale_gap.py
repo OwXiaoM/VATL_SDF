@@ -64,3 +64,31 @@ class SubsetTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AblationTableTests(unittest.TestCase):
+    def test_reads_full_scale_and_pilot_layouts(self):
+        import json
+        from analysis.scale_gap.ablation_table import row_for
+        conn = {'component_ratio': 2.0, 'component_ratio_ge_min': 3.0}
+        diag = {'subjects': [{'grid_x1': {'zero_level_dice': v, 'band_mae_mm': 1.0, 'volume_ratio_pred_over_ref': 1.1,
+                                          'connectivity': conn}} for v in (0.2, 0.4, 0.9)]}
+        median = {'zero_level_dice': 0.5, 'band_mae_mm': 1.2, 'volume_ratio_pred_over_ref': 1.3, 'component_ratio_ge_min': 4.0}
+        gen = {'test': {'epochs': {'10': {'median': {**median, 'zero_level_dice': 0.1}}, '20': {'median': median}}},
+               'recurrence': {'train_vs_train/learned': {'3mm': {'median': 0.41}}, 'test_vs_train/learned': {'3mm': {'median': 0.44}}}}
+        with tempfile.TemporaryDirectory() as d:
+            for layout in ('', 'post'):
+                root = Path(d) / (layout or 'full')
+                (root / 'diagnostics').mkdir(parents=True)
+                (root / 'diagnostics' / 'diagnostics.json').write_text(json.dumps(diag))
+                (root / layout / 'generalization').mkdir(parents=True)
+                (root / layout / 'generalization' / 'summary.json').write_text(json.dumps(gen))
+                (root / layout / 'inspect').mkdir(parents=True)
+                pd.DataFrame({'moe1_entropy': [0.9, 0.6], 'latent_norm_median': [0.0, 1.2]}).to_csv(
+                    root / layout / 'inspect' / 'checkpoints.tsv', sep='\t', index=False)
+                row = row_for('x', root)
+                self.assertAlmostEqual(row['0c_dice'], 0.4)
+                self.assertEqual(row['test_dice'], 0.5)  # final epoch, not first
+                self.assertEqual((row['rec3_train'], row['rec3_test']), (0.41, 0.44))
+                self.assertEqual(row['moe1_entropy'], 0.6)
+                self.assertNotIn('train_refit_dice', row)
