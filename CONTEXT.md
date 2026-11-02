@@ -785,6 +785,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47726 | G0.1 / G0.2 detectability.py on the F dumps (CPU, QOS dev) | 4 CPU, frozen 9466a0f | sdf_only/analysis/20261102_detectability_G0/g0_detectability.json | 0 | completed 3 s |
 | 47727 | G0.3 phantom.py (in memory; 12 radii x 2 shapes x 30 placements x 5 conditions) (CPU, QOS dev) | 16 CPU, frozen 9466a0f | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 1 | FAILED 7 s: empty mask (0.8 mm x 0.3 vanishes on the grid); fixed, rerun 47731 |
 | 47731 | G0.3 phantom rerun (vanished vessels counted as NaN) (CPU, QOS dev) | 16 CPU, frozen 6cceded | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 0 | completed 7 s |
+| 47748 | G0.4 decision_table.py (G0 JSON + phantom JSON) (CPU, QOS dev) | 2 CPU, frozen fcb633d | sdf_only/analysis/20261102_detectability_G0/g0_decision_table.json | 0 | completed |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2464,3 +2465,44 @@ Output: 20261102_detectability_G0/g0_phantom.json (12 radii x straight / curved 
 Phantom-predicted measured change at r 1.6-1.8 (the copies' targets): thin0.5 -0.65 to -0.76 mm (med, q25, allr),
 thin0.3 -1.28 to -1.52, stenosis0.3 q25 -0.95 to -0.99. Phantom SD 0.03-0.06 mm vs sigma_between 0.21-0.47 mm (G0.2):
 measurement noise of an ideal tube is 5-25x smaller than the population spread.
+
+### Step G0.4 result: decision table (job 47748; pre-registered rules; learned, population reference)
+
+Output: 20261102_detectability_G0/g0_decision_table.json. Ratio = median measured delta / phantom-predicted delta at the
+target radius (r* = manifest segment radius median of the label, 1.6-1.8 mm).
+| statistic | thin0.5 | thin0.3 | stenosis0.5 | stenosis0.3 |
+|---|---|---|---|---|
+| radius_absz | dilution (rule drops thinned points) | dilution (rule) | resolution limit* (0.41) | resolution limit* (0.27) |
+| radius_allr | dilution (0.28) | dilution (0.17) | between-subject (0.53) | dilution (0.33) |
+| segmatch_med | dilution (0.37) | dilution (0.23) | unclear** (2.4) | unclear** (2.0) |
+| segmatch_q25 | between-subject (0.78) | dilution (0.47) | unclear** (1.28) | unclear** (1.08) |
+Removal and displacement: unclear (not modelled by the phantom).
+* triggered by the phantom slope < 0.5 of the radius_absz rule itself (the large-vessel selection drops narrowed
+  points), not by voxel resolution: the phantom SD is 0.03-0.06 mm for every rule.
+** measured change as large as or larger than the phantom predicts and median |z| (3.0-4.4) ABOVE z_needed (2.94), so
+  neither dilution nor variance: these copies are blocked by the discrete p floor (G0.1: one element cannot reach
+  q / m with n_ref ~ 450 and m = 15).
+Overall (screening): the voxel resolution is not the bottleneck at the copies' radii (phantom SD << sigma, slopes
+0.8-1.0 above r 1.2 mm). Thinning is diluted in the real data for every rule (measured 17-47% of the phantom change,
+q25 at 0.5 thinning 78%); stenosis is measured at full size by segmatch_q25 / med but cannot be discovered as a single
+element because of the p floor; between-subject variance (fit noise <= 7%) sets z at 2-4 for the full-size effects.
+Projections from the saved arrays (not statistics; same copies; population p as computed in the F run):
+- a priori family of the 6 expected edges (training p_e >= 0.5: 4, 5, 6, 7, 11, 14; q / m = 0.0083 > floor 0.004):
+  segmatch_q25 detection thin0.5 0.10, thin0.3 0.33, stenosis0.5 0.08, stenosis0.3 0.41, removal 0.92; FPR null 0.087,
+  validation 0 (null above 0.06; population reference, learned). segmatch_med 0.10 / 0.30 / 0.25 / 0.43 / 0.83, FPR null
+  0.067.
+- subject-internal normalisation (log segmatch_q25 / the subject's median segmatch_med over the other expected edges):
+  correlation of an edge with the subject's other edges 0.16-0.30; robust CV changes from 0.21-0.32 to 0.22-0.30 (-10% to
+  +13%): projected z gain <= 1.1x. Not promising.
+Proposals (NOT run; to be pre-registered and confirmed on validation IDs 21-55 with fresh copies):
+  P1 segmatch_q25 with the a priori expected-edge family (p_e >= 0.5 from training; one factor vs segmatch_q25 = the
+     multiplicity family), population- and null-referenced as always. Criteria: learned, null-referenced (calibrated
+     against the refitted null) thin0.3 >= 0.25, stenosis0.3 >= 0.30, FPR null LOO and validation <= 0.06 (both refs);
+     population reference reported, expected to fail the FPR criterion (projection 0.087: trained-vs-refitted shift).
+  P2 none of the other candidates projects a gain: normalisation <= 1.1x; windowed minimum would act on stenosis, which
+     is already measured at full size (ratio 1.1-1.3) and blocked by the p floor, and on thinning, whose dilution comes
+     from matched side branches / attachment restore rather than the summary; left-right asymmetry needs a verified
+     pairing of the Willis segments among the population edges (not established; ask the user before designing it).
+     Recommendation: stop adding radius statistics for single-segment thinning until the p-floor / family design (P1)
+     is confirmed; then reconsider.
+Forking paths: G0 used the same 20 validation subjects and 664 copies as A-F.
