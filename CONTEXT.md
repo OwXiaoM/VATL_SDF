@@ -784,7 +784,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47673 | F segment diagnostic (segment_diagnostics.py, segments_match) (afterok 47672) (CPU, QOS dev) | 4 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F/d0_report.json | 0 | completed 12 s |
 | 47726 | G0.1 / G0.2 detectability.py on the F dumps (CPU, QOS dev) | 4 CPU, frozen 9466a0f | sdf_only/analysis/20261102_detectability_G0/g0_detectability.json | 0 | completed 3 s |
 | 47727 | G0.3 phantom.py (in memory; 12 radii x 2 shapes x 30 placements x 5 conditions) (CPU, QOS dev) | 16 CPU, frozen 9466a0f | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 1 | FAILED 7 s: empty mask (0.8 mm x 0.3 vanishes on the grid); fixed, rerun 47731 |
-| 47731 | G0.3 phantom rerun (vanished vessels counted as NaN) (CPU, QOS dev) | 16 CPU, frozen 6cceded | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | | submitted |
+| 47731 | G0.3 phantom rerun (vanished vessels counted as NaN) (CPU, QOS dev) | 16 CPU, frozen 6cceded | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 0 | completed 7 s |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2446,3 +2446,21 @@ segmatch_q25 thin0.5 0.76, thin0.3 0.82, stenosis0.3 0.90; segmatch_med 0.60 / 0
 0.71; radius_absz 0.07 / 0.05 / 0.41 (thinning delta ~ 0). These projections are only reachable if the p floor is also
 removed (larger reference or a different multiplicity design).
 Facts: between-subject variance dominates fit noise everywhere; radius_absz does not see thinning at all (delta 0).
+
+### Step G0.3 result: resolution phantom (job 47731; in memory; screening evidence, optimistic lower bound)
+
+Output: 20261102_detectability_G0/g0_phantom.json (12 radii x straight / curved x 30 placements, real spacing
+0.9375 x 0.9375 x 0.8 mm, voxel-centre EDT SDF as in the data files). Straight and curved agree within 0.05 mm.
+- Bias of -SDF at the graph centreline (all rules): -0.1 mm at r 0.8 growing to -0.3 / -0.37 mm at r 2-3 (median /
+  q25); measurement SD over placements 0.02-0.06 mm at every radius (q25 0.02-0.06).
+- Thinning slope (measured / true change of the same summary): segmatch_med 0.82-0.87 at r 1.6-2.0 (0.9-0.97 at r >=
+  2.2), q25 0.80-0.86, node_allr 0.79-0.88; thin0.3 slopes 0.97-1.34 at r 1.4-2.0. Below r 1.2 slopes reach 1.5-4.7 with
+  SD up to 1.9 mm and 3-7% of thin0.3 tubes vanish on the grid (true radius < 0.4 mm): the resolution limit sits at a
+  true radius of ~0.5 mm, below the thinned targets of the copies (eligibility: segment radius >= 1.5 mm).
+- Stenosis 0.3 (4 mm plateau): q25 slope 0.78-0.99 at r 1.4-2.0, node_allr 0.86-1.13 (node at the stenosis centre);
+  segmatch_med slope 1.3-2.6 (the true median of the 14 mm interior barely changes, measured change -0.18 to -0.46 mm).
+- node_absz (radius_absz rule): NaN for every thinned tube below r 2.4 (thin0.5) and every thin0.3 tube (graph radius
+  < 1.2 mm leaves the large-vessel selection); stenosis0.3 slope 0.2-0.5 with 30-87% NaN.
+Phantom-predicted measured change at r 1.6-1.8 (the copies' targets): thin0.5 -0.65 to -0.76 mm (med, q25, allr),
+thin0.3 -1.28 to -1.52, stenosis0.3 q25 -0.95 to -0.99. Phantom SD 0.03-0.06 mm vs sigma_between 0.21-0.47 mm (G0.2):
+measurement noise of an ideal tube is 5-25x smaller than the population spread.
