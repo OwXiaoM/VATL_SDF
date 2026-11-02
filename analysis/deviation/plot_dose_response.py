@@ -4,8 +4,9 @@ Rows: learned, centroid (uniform weighting). Columns: radius factor (thin, remov
 displacement (mm). Magnitude 'none' = the unperturbed refit of the same (subject, edge) pairs (baseline columns).
 Series 'default' (old any, Step B, subject level), 'radius' (radius_absz vs radius_allr, Step E1; population- and
 null-referenced element detection) or 'f' (population-referenced: radius_absz, seg_radius, radius_allr and the Step F
-families segmatch_med, segmatch_q25, presence3).
-Usage: python analysis/deviation/plot_dose_response.py DEVIATION_DIR [OUTPUT_PNG] [default|radius|f]
+families segmatch_med, segmatch_q25, presence3) or 'p1' (segmatch_q25 full family vs segmatch_q25_apriori, population-
+and null-referenced, with radius_absz and radius_allr).
+Usage: python analysis/deviation/plot_dose_response.py DEVIATION_DIR [OUTPUT_PNG] [default|radius|f|p1]
 """
 import json
 import sys
@@ -23,6 +24,10 @@ SERIES_RADIUS = [('population_radius_absz', 'radius_absz (pop.)', '#2a78d6'), ('
 SERIES_F = [('population_radius_absz', 'radius_absz', '#2a78d6'), ('population_seg_radius', 'seg_radius (B)', '#eb6834'),
             ('population_radius_allr', 'radius_allr (E1)', '#1baf7a'), ('population_segmatch_med', 'segmatch_med (F1)', '#eda100'),
             ('population_segmatch_q25', 'segmatch_q25 (F1)', '#e87ba4'), ('population_presence3', 'presence3 (F2)', '#6250d6')]
+SERIES_P1 = [('population_segmatch_q25', 'segmatch_q25 full (pop.)', '#eb6834'), ('null_segmatch_q25', 'segmatch_q25 full (null)', '#e87ba4'),
+             ('population_segmatch_q25_apriori', 'segmatch_q25 a priori (pop.)', '#1baf7a'),
+             ('null_segmatch_q25_apriori', 'segmatch_q25 a priori (null)', '#008300'),
+             ('population_radius_absz', 'radius_absz (pop.)', '#2a78d6'), ('population_radius_allr', 'radius_allr (pop.)', '#eda100')]
 SERIES = [('population_any', 'element, old families (pop.)', '#2a78d6'),
           ('null_any', 'element, old families (null)', '#eb6834'),
           ('population_any_new', 'element, segment families (pop.)', '#1baf7a'),
@@ -38,7 +43,7 @@ def value(e, key, baseline):
 
 def main():
     run = Path(sys.argv[1]); out = Path(sys.argv[2]) if len(sys.argv) > 2 else run / 'dose_response.png'
-    series = {'radius': SERIES_RADIUS, 'f': SERIES_F}.get(sys.argv[3] if len(sys.argv) > 3 else 'default', SERIES)
+    series = {'radius': SERIES_RADIUS, 'f': SERIES_F, 'p1': SERIES_P1}.get(sys.argv[3] if len(sys.argv) > 3 else 'default', SERIES)
     d = json.loads((run / 'deviation.json').read_text())
     fig, axes = plt.subplots(2, 3, figsize=(13, 7.5), sharey=True)
     for i, method in enumerate(('learned', 'centroid')):
