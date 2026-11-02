@@ -765,10 +765,11 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47058-47077 | Null extension: test-time refits of 200 more training subjects (configs/evaluation/deviation_sets_null_extra.json, seed 0), chunks of 10 (QOS normal/dev alternating) | 20 x 1 L40S, frozen 2389528 | sdf_only/analysis/20261101_dev_refit_null_extra | | completed (20/20) |
 | 47081 | Perturbation manifest (CoW centre, targets, eligibility, 332 copies) (CPU, QOS dev) | 4 CPU, frozen fad1ebb | sdf_only/analysis/20261101_perturbation/manifest.json | 0 | COMPLETED 10 s |
 | 47082-47115 | Perturbed-copy refits (34 chunks of 10, manifest priority order: removal, thin, displace 3, displace 5; in-memory copies regenerated with commit 007f163) | 34 x 1 L40S, QOS normal/dev, frozen 007f163 | sdf_only/analysis/20261101_perturbation/refit | | completed (34/34, ~12-13 min each) |
-| 47156-47161 | Step A: replicate refits of the 20 validation subjects (sets valrep1/2/3, SEED_OFFSET 7/8/9; 2 chunks of 10 each) | 6 x 1 L40S, QOS normal/dev, frozen 9253e11 | sdf_only/analysis/20261102_valrep/refit | | submitted |
+| 47156-47161 | Step A: replicate refits of the 20 validation subjects (sets valrep1/2/3, SEED_OFFSET 7/8/9; 2 chunks of 10 each) | 6 x 1 L40S, QOS normal/dev, frozen 9253e11 | sdf_only/analysis/20261102_valrep/refit | 0 | completed 12-13 min each |
 | 47162 | Step C manifest: same targets/eligibility, kinds thin:0.3 stenosis:0.5 stenosis:0.3 displace:2 (CPU, QOS dev) | 4 CPU, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/manifest.json | 0 | completed 9 s: 332 copies, same 83 pairs and CoW centre as the first manifest |
-| 47163-47196 | Step C copy refits (34 chunks of 10, set perturbed_c, afterok 47162) | 34 x 1 L40S, QOS normal/dev, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/refit | | submitted |
-| 47197 | Deviation A+B: null 300, 332 old copies, replicates valrep1-3, segment families (afterok 47156-47161) (CPU) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_AB | 0 | submitted (dependency) |
+| 47163-47196 | Step C copy refits (34 chunks of 10, set perturbed_c, afterok 47162) | 34 x 1 L40S, QOS normal/dev, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/refit | 0 | completed 3-13 min each |
+| 47197 | Deviation A+B: null 300, 332 old copies, replicates valrep1-3, segment families (afterok 47156-47161) (CPU) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_AB | 0 | completed 30 min; old families identical to 47117 (0 diffs) |
+| 47203 | Deviation C: null 300, both manifests (664 copies), replicates valrep1-3, old + segment families (CPU, QOS normal) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_C | | submitted |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -1857,3 +1858,63 @@ Implementation notes (2026-11-02, before any Step B result):
   voxels than the 8 mm stenosis zone.
 - Code commits: 9253e11 (replicate sets), 5db875c (Step C perturbations), cc71332 (deviation: replicates, segment
   families, extended family min-p). Full suite 117 tests OK.
+
+### Step A result: refit variability (job 47197, screening evidence; learned/uniform, r3mm, null 300 unless noted)
+
+Regression: all old-family FPRs and sensitivities identical to job 47117 (0 differences).
+Facts:
+- Transform difference vs the original validation fit (RMS over large-vessel centreline points, template mm):
+  replicates (60 fits) median 0.136, p90 0.20, max 0.29; perturbed-copy refits median 0.15-0.19 (remove 0.175,
+  thin 0.146, displace3 0.173, displace5 0.187), p90 0.24-0.31. Copies differ from the original fit by about as much
+  as a fresh-seed refit does, slightly more.
+- Subject-level primary family min-p on the replicates: learned 0.05 / 0.05 / 0.05 (original 0.05); the same subject
+  (IXI426) is flagged in all 4 fits and no other subject in any fit. Decoder 0.05 / 0 / 0 (IXI153 flagged in original
+  and rep1 only). Centroid scores do not depend on the fit (within-subject SD 0 by construction).
+- Element any-family discovery on the replicates equals the original: learned population 0.05 x3, null-referenced
+  0.10 x3; centroid 0 x3.
+- Within-subject SD over 4 fits / between-subject SD (learned): nll_roi_cal 0.025, uncov_0.25 0.028, edge_total 0.23,
+  conn_graph 0.014, conn_mask 0.006, radius_sdf_absz 0.17, affine_d2 0.07; new segment scores segrad 0.29,
+  offset 0.04, coverage 0.19. Fraction of validation subjects with raw p <= 0.05 in any fit = in the original fit for
+  every primary score; segrad 0.10 vs 0.00 (noisiest score).
+- Replicate-matched detection for the copies' (subject, edge) pairs = 0.072, identical to the baseline 0.072
+  (subject level), and 0.024 vs baseline 0.024 (population any-family element level). Thin 0.12, displace3 0.12,
+  displace5 0.096 at subject level: refit variability at fresh-seed level accounts for none of the 2-4 excess copies
+  (of 83).
+- The 10 excess thin/displace detections come from 5 subjects (IXI037, IXI334, IXI358, IXI386, IXI403) whose
+  smallest raw primary p in the original fit is 0.053-0.10 (near threshold); none crossed in any replicate. Their
+  copies' transform differences are 0.09-0.36 mm (one above the replicate maximum).
+Hypotheses (untested): the perturbation changes non-target scores (edge totals, connectivity) slightly, which tips
+near-threshold subjects; with 83 copies an excess of 2-4 is also compatible with chance.
+
+### Step B result: segment families (job 47197, screening evidence; decoder subject level only, uniform, r3mm)
+
+FPR, null LOO / validation (BH q 0.05 per subject; any = old families unchanged):
+| method | ref | seg_radius | offset | coverage | any_new | any (old) | any_all |
+|---|---|---|---|---|---|---|---|
+| learned | population | 0.007 / 0.00 | 0.113 / 0.10 | 0 / 0 | 0.12 / 0.10 | 0.033 / 0.05 | 0.147 / 0.15 |
+| learned | null | 0 / 0 | 0.010 / 0 | 0 / 0 | 0.010 / 0 | 0.037 / 0.10 | 0.047 / 0.10 |
+| centroid | population | 0.007 / 0 | 0.020 / 0.05 | 0 / 0 | 0.027 / 0.05 | 0.033 / 0 | 0.057 / 0.05 |
+| centroid | null | 0.010 / 0 | 0.013 / 0.10 | 0 / 0 | 0.023 / 0.10 | 0.023 / 0 | 0.043 / 0.10 |
+Facts:
+- Element sensitivity of the new families is 0.000 for all four perturbations, learned, both references, every edge.
+  Centroid: offset 0.012-0.036 vs baseline 0.012; no seg_radius or coverage discovery except edge 14 thin/displace
+  (1/18). any_all sensitivity therefore equals the old any (removal learned 0.43 / 0.48).
+- The statistics do move at the target (learned, median over copies; baseline = unperturbed refit):
+  seg_radius 1.30 mm -> remove 0.07, thin 0.60, displace3 0.69, displace5 0.52; offset 1.96 mm -> 2.77, 1.98, 2.23,
+  2.41; coverage 0.79 -> 0.25, 0.27, 0.64, 0.48. Centroid baselines differ (seg_radius 0.62, offset 3.19, coverage 0.42).
+- Learned population-referenced offset is miscalibrated (null 0.113, validation 0.10); null-referenced offset and
+  the centroid version are not (0.01-0.02).
+- Extended subject min-p (separate comparison; primary min-p unchanged): null FPR 0.043 (learned) / 0.047 (centroid)
+  by construction, but validation 0.15 / 0.10 and learned replicates 0.20 x3. Copies, learned: remove 0.30 (primary
+  0.23), thin 0.24 (0.12), displace3 0.25 (0.12), displace5 0.18 (0.10); baseline 0.133, replicate 0.185. Centroid:
+  remove 0.19, thin 0.06, displace3 0.10, displace5 0.07; baseline 0.084. Decoder: no new families (identical).
+Hypotheses (untested):
+- Zero element sensitivity: target edges have p_edge 0.52-0.92, so 8-48% of training subjects have seg_radius ~0 and
+  low coverage there; even a value of 0 then has population tail p of roughly 2(1 - p_edge) >= 0.16 (two-sided
+  seg_radius) or (1 - p_edge) (coverage), above any BH threshold (the same floor that keeps edge presence at 0).
+  Checkable by saving the training segment distributions; a presence-conditioned version (distribution over
+  subjects with the edge present) would be a new statistic, not yet run.
+- Learned offset miscalibration: training distribution uses trained transforms, queries refitted (systematic offset
+  shift); centroid (no such mismatch) and null-referenced (refitted null) versions are calibrated.
+- Extended min-p validation excess (3-4/20 vs 0.043 on the null): the new segment scores differ between null
+  and validation fits; segrad has the largest refit variability (ratio 0.29).
