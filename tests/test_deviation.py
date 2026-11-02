@@ -52,6 +52,18 @@ class RefitAndDecodeTests(unittest.TestCase):
             with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--sets', str(sets), '--set', 'null',
                                                  '--output', str(out), '--total-epochs', '2', '--device', 'cpu']):
                 refit_subjects.main()
+        # replicate refits of the validation subjects: own seed, own file name, never picked up as 'validation'
+        from vatl_sdf.deviation import load_fitted
+        with mock.patch.object(sys, 'argv', ['x', '--checkpoint', str(self.checkpoint_path), '--sets', str(sets), '--set', 'valrep1',
+                                             '--output', str(out), '--align-epochs', '1', '--total-epochs', '2',
+                                             '--steps-per-epoch', '2', '--device', 'cpu']):
+            refit_subjects.main()
+        rep = torch.load(out / 'fitted_valrep1_00.pt', weights_only=False)
+        self.assertEqual(rep['subject_ids'], ['s1'])
+        self.assertFalse(np.allclose(rep['t_mm'], fitted['t_mm']) and np.allclose(rep['A'], fitted['A']))  # other sampler seed
+        np.testing.assert_array_equal(load_fitted(out, 'validation')['s1'][1], np.asarray(fitted['t_mm'][0], float))
+        self.assertEqual(set(load_fitted(out, 'valrep1')), {'s1'})
+        self.assertEqual(len(list(out.glob('fitted_validation_*.pt'))), 1)
         shards = Path(self.temp.name) / 'decode'
         for k in range(2):
             with mock.patch.object(sys, 'argv', ['x', 'shard', '--checkpoint', str(self.checkpoint_path), '--output', str(shards),

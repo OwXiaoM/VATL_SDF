@@ -17,14 +17,15 @@ import torch
 from analysis.generalization.evaluate_generalization import test_frame
 from vatl_sdf.test_time_fit import SubjectSampler, build_fitting_model, fit, subject_maps, training_steps_per_epoch
 
-SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4, 'null_extra': 5, 'perturbed': 6}  # 1 = the generalization 'test' group
+SEED_OFFSET = {'validation': 1, 'null': 3, 'calibration': 4, 'null_extra': 5, 'perturbed': 6,  # 1 = the generalization 'test' group
+               'valrep1': 7, 'valrep2': 8, 'valrep3': 9, 'perturbed_c': 10}  # replicate refits of validation; Step C copies
 
 
 def set_frame(config, frame, sets, name, manifest=None):
-    if name == 'perturbed':  # in-memory perturbation copies (vatl_sdf/perturbation.py), priority order of the manifest
+    if name.startswith('perturbed'):  # in-memory perturbation copies (vatl_sdf/perturbation.py), priority order of the manifest
         from vatl_sdf.perturbation import copy_rows
         return copy_rows(manifest)
-    if name == 'validation':
+    if name == 'validation' or name.startswith('valrep'):  # valrep*: replicate refits (other sampler seed)
         return test_frame(config, frame.subject_id.tolist(), '', len(sets['validation']))
     ids = sets[name]
     if set(ids) - set(frame.subject_id):
@@ -40,7 +41,7 @@ def main():
     p.add_argument('--align-epochs', type=int, default=10); p.add_argument('--total-epochs', type=int, default=36)
     p.add_argument('--horizon-epochs', type=int); p.add_argument('--steps-per-epoch', type=int)
     p.add_argument('--device', default='cuda')
-    p.add_argument('--perturbations', help='perturbation manifest (set perturbed)')
+    p.add_argument('--perturbations', help='perturbation manifest (sets perturbed*)')
     a = p.parse_args()
     started = time.time()
     checkpoint = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
@@ -49,7 +50,7 @@ def main():
     steps = a.steps_per_epoch or training_steps_per_epoch(config)
     sets = json.loads(Path(a.sets).read_text())
     manifest = None
-    if a.set == 'perturbed':
+    if a.set.startswith('perturbed'):
         from vatl_sdf.perturbation import configure
         manifest = configure(a.perturbations)
     full = set_frame(config, frame, sets, a.set, manifest)
