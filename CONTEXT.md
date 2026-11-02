@@ -2055,3 +2055,50 @@ Regression: all FPRs and sensitivities of 47311 identical to 47203. Report: 2026
    absent or are measured on the neighbouring unthinned branches (radius unchanged). Removal is detected through
    remaining graph points that now lie outside the vessel mask; stenosis keeps most nodes tested and lowers their radius.
    Per the plan, D3 (floor-keep variant) is not run.
+
+### Step D1 result: presence-conditioned segment families (job 47315, screening evidence; uniform, r3mm)
+
+Regression: old families and Step B rows identical to 47203 (0 differences).
+FPR, null LOO / validation (BH per subject; [fraction of discoveries on absent-query elements, null / validation]):
+| method | ref | seg_radius_cond | coverage_cond | any_new_cond | seg_radius_condpresent | coverage_condpresent |
+|---|---|---|---|---|---|---|
+| learned | population | 0.077 / 0.10 [0.96 / 1.0] | 0.98 / 0.95 [1.0 / 1.0] | 0.98 / 0.95 | 0.037 / 0 | 0 / 0 |
+| learned | null | 0.053 / 0.05 [0.995 / 1.0] | 0.81 / 0.75 [1.0 / 1.0] | 0.81 / 0.75 | 0.007 / 0 | 0 / 0 |
+| centroid | population | 0 / 0 | 0.99 / 1.0 [1.0 / 1.0] | 0.99 / 1.0 | 0.013 / 0 | 0 / 0 |
+| centroid | null | 0 / 0 | 0.82 / 0.65 [1.0 / 1.0] | 0.82 / 0.65 | 0.003 / 0 | 0 / 0 |
+Sensitivity per copy (learned, population / null): seg_radius_cond 0 / 0.00-0.024 for all 8 labels; coverage_cond
+thin0.5 0.96 / 0.82, thin0.3 0.96 / 0.78, removal 0.96 / 0.78, stenosis0.5 0.42 / 0.37, stenosis0.3 0.53 / 0.47,
+displace2 0.27 / 0.25, displace3 0.43 / 0.41, displace5 0.65 / 0.58; unperturbed baseline of the same pairs 0.17 /
+0.16. Split by target presence after the perturbation: coverage_cond discoveries 0.96-0.99 (pop) on copies whose
+target is absent and 0.00 on copies whose target is still present, for every label. condpresent rows: 0-0.012
+(thin copies' targets are absent, so excluded). Centroid: same pattern (coverage_cond 0.74-0.89 vs baseline 0.76).
+Subject level (conditional-extended min-p): null 0.047 / validation 0.05 (learned), detection identical to the primary
+min-p for every label (thin0.5 0.12, removal 0.23, ...). The coverage_cond score -log(min p) is saturated at
+-log(1 / 311) = 5.74 in the median null subject (an absent edge somewhere), so it adds no ranking information.
+Facts on seg_radius_cond: even among training subjects with the edge present, 0.6-6% have seg_radius <= 0.1 mm
+at the target edges (1st percentile 0 for edges 4, 5, 6, 14), so the two-sided conditional p of a thinned target
+(median value 0.17 mm at thin0.3) is >= 0.0077 (median 0.054), above the BH rank-1 threshold 0.0031.
+Conclusions (screening): conditioning on presence removes the absent-subject floor only partly (seg_radius) or turns
+the family into a re-test of absence without the 1 - p_edge prior (coverage: every absent edge in any subject is
+flagged; FPR 0.8-1.0). Neither row is usable. Hypothesis (untested): the residual zero-valued present subjects are
+cases where the interior samples' nearest all-radius graph point lies outside the mask (-SDF clipped to 0) or the
+large-vessel coverage comes from a neighbouring vessel within r.
+
+### Step D2 result: offset, null-referenced only (jobs 47203 / 47315, screening evidence)
+
+Null-referenced offset (population reference dropped): FPR learned 0.010 / 0.00, centroid 0.013 / 0.10 (null /
+validation; population-referenced was 0.113 / 0.10 and 0.020 / 0.05). Sensitivity: learned 0.000 for all 8 labels
+(baseline 0); centroid 0.012 for all labels except removal 0.036 (baseline 0.012; only edge 14, and edge 4 for
+removal). Target offsets (learned medians) 1.96 mm unperturbed -> 2.08 / 2.23 / 2.41 at 2 / 3 / 5 mm displacement,
+against training IQRs 1.1-1.8 mm on the target edges. Variant "population reference from the null refits": identical
+to the null-referenced row by construction (verified in D0, max |diff| 0), not run separately.
+Facts: dropping the population reference fixes the learned calibration (0.113 -> 0.010) but the offset family has
+no sensitivity. Hypothesis (untested): the median distance to the ALL-radius centreline is dominated by neighbouring
+small branches and the restored attachment ends, and the between-subject spread (IQR 1-5 mm) is larger than the
+shift the displacement produces in the median (<= 0.45 mm).
+
+### Step D3: not run
+
+D0 found no floor-excluded node (refuted). Proposal (not implemented, needs confirmation): a node-radius variant
+measured on ALL-radius graph points within r of the node (not only large-vessel edges), so a thinned edge keeps
+contributing its reduced radius instead of dropping out; one factor vs radius_absz, separate row.
