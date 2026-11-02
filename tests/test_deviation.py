@@ -242,13 +242,17 @@ class PerturbationPipelineTests(DeviationPipelineTests):
                                              '--output', str(d / 'refit'), '--align-epochs', '1', '--total-epochs', '2',
                                              '--steps-per-epoch', '1', '--device', 'cpu']):
             refit_subjects.main()                                             # first chunk only: partial copies are allowed
+        with mock.patch.object(sys, 'argv', ['x', *common, '--set', 'valrep1', '--output', str(d / 'refit'), '--align-epochs', '1',
+                                             '--total-epochs', '2', '--steps-per-epoch', '1', '--device', 'cpu']):
+            refit_subjects.main()
         with mock.patch.object(sys, 'argv', ['x', 'shard', '--checkpoint', str(self.checkpoint_path), '--output', str(d / 'dec'),
                                              '--shard', '0', '--num-shards', '1', '--device', 'cpu', '--chunk-size', '64', '--save-subjects']):
             probabilistic_atlas.main()
         out = d / 'deviation'
         with mock.patch.object(sys, 'argv', ['x', *common, '--decodings', str(d / 'dec'), '--refit', str(d / 'refit'), '--output', str(out),
                                              '--min-skeleton-voxels', '1', '--radii-mm', '3', '2', '--age-sigmas', '7',
-                                             '--smooth-mm', '0', '--recalibration', 'none', '--perturbations', str(manifest), '--workers', '1']):
+                                             '--smooth-mm', '0', '--recalibration', 'none', '--perturbations', str(manifest), '--workers', '1',
+                                             '--replicate-sets', 'valrep1']):
             deviation.main()
         summary = json.loads((out / 'deviation.json').read_text())
         self.assertEqual(summary['perturbations']['copies_scored'], min(3, len(m['copies'])))
@@ -257,7 +261,24 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         self.assertIn('population_any', sens['by_perturbation']['remove0'])
         self.assertIn('subject_detection', summary['sensitivity']['decoder/uniform']['by_perturbation']['remove0'])
         self.assertNotIn('learned/age_sigma7', summary['sensitivity'])       # perturbed copies: uniform weighting only
+        row = sens['copies'][0]
+        for key in ('population_seg_radius', 'null_offset', 'population_coverage', 'population_any_new', 'transform_rms_mm',
+                    'replicate_subject_detected', 'replicate_population_any', 'subject_detected_ext'):
+            self.assertIn(key, row)
+        self.assertIn('label', row)
+        val = summary['fpr']['learned/uniform']['validation']
+        self.assertIn('seg_radius', val['elements_bh_population']['r3mm_tau0.1']); self.assertIn('any_new', val['elements_bh']['r3mm_tau0.1'])
+        self.assertIn('primary_family_minp_ext', val)
+        rep = summary['replicates']['learned/uniform']
+        self.assertEqual(rep['valrep1']['fpr']['subjects'], 2)
+        self.assertEqual(len(rep['transform_shift_mm']['valrep1']), 2)
+        self.assertIn('uncov_0.25_uncal', rep['score_variability'])
+        self.assertEqual(set(scores_sets(out)), {'null', 'validation'})       # replicates / copies not in scores.tsv
         self.assertFalse(any(p.name.startswith('s6__') for p in (out / 'subjects').iterdir()))  # no reports for copies
+
+
+def scores_sets(out):
+    return pd.read_csv(out / 'scores.tsv', sep='\t', keep_default_na=False, na_values=['']).set.unique()
 
 
 class DeviationStatisticsTests(unittest.TestCase):
@@ -294,6 +315,62 @@ class DeviationStatisticsTests(unittest.TestCase):
         self.assertAlmostEqual(out[0, 3], 1.)                               # median value: two-sided p = 1
         far = radius_deviation(np.array([9.]), dist, np.ones(5))
         self.assertAlmostEqual(far[0, 3], 2 * 1 / 5)                        # (0 + c) / (4 + c), c = 1
+
+    def test_tail_p(self):
+        from vatl_sdf.deviation import tail_p
+        dist = np.array([[1.], [2.], [3.], [4.], [np.nan]])
+        np.testing.assert_allclose(tail_p(np.array([9.]), dist, np.ones(5), 'upper'), [1 / 5])     # (0 + c) / (4 + c)
+        np.testing.assert_allclose(tail_p(np.array([0.]), dist, np.ones(5), 'lower'), [1 / 5])
+        np.testing.assert_allclose(tail_p(np.array([3.]), dist, np.ones(5), 'upper'), [3 / 5])
+        self.assertTrue(np.isnan(tail_p(np.array([np.nan]), dist, np.ones(5), 'upper')[0]))
+
+    def test_interior_samples(self):
+        from vatl_sdf.deviation import interior_samples
+        path = np.c_[np.arange(0., 21.), np.zeros(21), np.zeros(21)]
+        idx = interior_samples(path, path[0], path[-1])
+        np.testing.assert_array_equal(idx, np.arange(3, 18))                 # 3 mm margin
+        short = path[:5]
+        np.testing.assert_array_equal(interior_samples(short, short[0], short[-1]), [1, 2, 3])   # margin |a-b|/4 = 1
+        self.assertEqual(len(interior_samples(path[:2], path[0], path[1])), 1)   # fallback: farthest sample
+
+    def test_segment_statistics(self):
+        from vatl_sdf.deviation import segment_statistics
+        from vatl_sdf.perturbation import perturb
+        import pickle
+        from vatl_sdf.graph_coords import edge_samples, load_graph
+        sdf, affine, g = tube_case()
+        with tempfile.TemporaryDirectory() as t:
+            with open(Path(t) / 'g.pkl', 'wb') as f:
+                pickle.dump({'graph': g}, f)
+            graph = load_graph(str(Path(t) / 'g.pkl'))
+        centre = np.zeros(3)
+        pop = {'edge_points_mm': [np.c_[np.arange(15., 26.), np.full(11, 12.), np.full(11, 12.)]], 'edges': [(0, 1)],
+               'nodes_mm': np.array([[15., 12., 12.], [25., 12., 12.]]), 'radius_mm': 3.}
+
+        def stats(s, gr):
+            large = edge_samples(gr['pos'], gr['edges'][(gr['radius'][gr['edges']] >= 1.2).all(1)], 0.4)[0]
+            alll = edge_samples(gr['pos'], gr['edges'], 0.4)[0]
+            return segment_statistics(s, affine, centre, np.eye(3), np.zeros(3), large, alll, pop)
+        base = stats(sdf, graph)
+        self.assertAlmostEqual(base['seg_radius'][0], 2., places=1)
+        self.assertAlmostEqual(base['offset'][0], 0., places=6); self.assertAlmostEqual(base['coverage'][0], 1.)
+        edges = [int(k) for k, (a, b) in enumerate(graph['edges']) if 10 <= a <= 20 and 10 <= b <= 20]
+        thin = stats(*perturb(sdf, affine, graph, edges, 'thin'))
+        self.assertAlmostEqual(thin['seg_radius'][0], 1., places=1)
+        self.assertAlmostEqual(thin['offset'][0], 0., places=6)            # all-radius centreline unmoved
+        self.assertLess(thin['coverage'][0], 0.8)                          # radius 1 < 1.2: interior off the large-vessel centreline
+        moved = stats(*perturb(sdf, affine, graph, edges, 'displace', 3., [0., 0., 1.]))
+        self.assertGreater(moved['offset'][0], 2.)
+        gone = stats(*perturb(sdf, affine, graph, edges, 'remove'))
+        self.assertLess(gone['seg_radius'][0], 0.5); self.assertLess(gone['coverage'][0], 0.8)   # (small branch root keeps offset low)
+
+    def test_transform_shift(self):
+        from vatl_sdf.deviation import transform_shift
+        rng = np.random.default_rng(0)
+        A = np.eye(3) * 1.1; t = np.array([1., 2., 3.]); native = rng.normal(size=(50, 3))
+        lines = native @ A.T + t
+        self.assertAlmostEqual(transform_shift(lines, A, t, A, t + [0., 0., 2.]), 2.)
+        self.assertAlmostEqual(transform_shift(lines, A, t, A, t), 0.)
 
     def test_outcome_p(self):
         from vatl_sdf.deviation import outcome_p

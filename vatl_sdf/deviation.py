@@ -24,6 +24,18 @@ Per query, method and weighting:
 Empirical p = (1 + #null >= s) / (1 + #null) (null queries: other null queries only); per-element p-values with
 Benjamini-Hochberg within subject and family; subject-level false-positive rates at alpha with Holm over the
 primary score family.
+Segment statistics per population edge (separate element families, added 2026-11-02; existing families unchanged):
+  interior    path samples at distance >= min(3 mm, |a - b| / 4) from both end nodes (fallback: farthest sample);
+  seg_radius  median over interior samples of the local radius = -SDF (trilinear, native) at the subject's nearest
+              mapped all-radius graph centreline point within r (0 if none or outside the mask); two-sided
+              (|robust z|, radius tail p);
+  offset      median over interior samples of the template distance to the mapped all-radius graph centreline,
+              capped at 4 r; upper tail;
+  coverage    fraction of all path samples within r of the mapped large-vessel centreline (continuous presence);
+              lower tail (null-referenced score 1 - coverage).
+Subject level, separate from the primary test: extended family min-p = primary scores + -log(min_e population p)
+of the three segment families (primary population).
+Replicate refits (--replicate-sets) and perturbed copies are scored as extra queries against the same null.
 """
 import argparse
 import json
@@ -40,9 +52,10 @@ from scipy.spatial import cKDTree
 
 from .atlas_calibration import Recalibrator
 from .graph_atlas import build_population, held_out_rows, presence
-from .graph_coords import edge_samples, load_graph, world_to_voxel
+from .graph_coords import edge_samples, load_graph, voxel_to_world, world_to_voxel
 from .inference import world_grid
 from .model import SDFModel
+from .perturbation import copy_label
 from .population_maps import save
 from .probabilistic_atlas import calibration, subject_labels_in_template, template_world, within_radius
 from .vessel_attribute_atlas import FLOOR_MM, subject_attributes
@@ -94,6 +107,21 @@ def radius_deviation(values, distribution, w, min_subjects=3):
     return out
 
 
+def tail_p(values, distribution, w, side, min_subjects=3):
+    """One-sided population-referenced p per element (one pseudo-subject): upper (sum w[x >= v] + c) / (sum w + c),
+    lower with x <= v; NaN = absent."""
+    out = np.full(len(values), np.nan)
+    for k, v in enumerate(values):
+        ok = np.isfinite(distribution[:, k]) & (w > 0)
+        if not np.isfinite(v) or ok.sum() < min_subjects:
+            continue
+        col, wk = distribution[ok, k], w[ok]
+        c = wk.sum() / ess(wk)
+        hit = col >= v if side == 'upper' else col <= v
+        out[k] = min(1., (wk[hit].sum() + c) / (wk.sum() + c))
+    return out
+
+
 def outcome_p(p_success, observed):
     """Population-referenced p-value of a binary outcome: its probability if it is the less likely one, else 1."""
     q = np.where(observed, p_success, 1 - p_success)
@@ -111,6 +139,63 @@ def mahalanobis2(x, X, w):
     cov += 1e-6 * np.trace(cov) / len(x) * np.eye(len(x))
     e = x - mu
     return float(e @ np.linalg.solve(cov, e))
+
+
+# ---------------------------------------------------------------- segment statistics (B1-B3)
+def interior_samples(path, a, b, margin_mm=3.0):
+    m = min(margin_mm, np.linalg.norm(np.asarray(a) - np.asarray(b)) / 4.)
+    d = np.minimum(np.linalg.norm(path - a, axis=1), np.linalg.norm(path - b, axis=1))
+    idx = np.flatnonzero(d >= m - 1e-9)
+    return idx if len(idx) else np.array([int(np.argmax(d))])
+
+
+def segment_statistics(sdf, sdf_affine, centre, A, t, lines, all_lines, pop, offset_cap_factor=4.):
+    """Per population edge: seg_radius, offset and coverage (module docstring); template coordinates of the subject's
+    large-vessel (lines) and all-radius (all_lines) centrelines mapped by (A, t); native = (x - t) A^-T + centre."""
+    r = pop['radius_mm']; ne = len(pop['edges'])
+    A = np.asarray(A, float); t = np.asarray(t, float)
+    native_all = (np.asarray(all_lines) - t) @ np.linalg.inv(A).T + centre if len(all_lines) else np.zeros((0, 3))
+    local_r = np.clip(-ndi.map_coordinates(sdf, world_to_voxel(sdf_affine, native_all).T, order=1, mode='nearest'), 0., None) \
+        if len(native_all) else np.zeros(0)
+    large_tree = cKDTree(lines) if len(lines) else None
+    all_tree = cKDTree(all_lines) if len(all_lines) else None
+    cap = offset_cap_factor * r
+    out = {'seg_radius': np.full(ne, np.nan), 'offset': np.full(ne, np.nan), 'coverage': np.full(ne, np.nan)}
+    for k, path in enumerate(pop['edge_points_mm']):
+        a, b = pop['edges'][k]
+        idx = interior_samples(path, pop['nodes_mm'][a], pop['nodes_mm'][b])
+        if all_tree is not None:
+            d, j = all_tree.query(path[idx], distance_upper_bound=cap)
+            radii = np.where(d <= r, local_r[np.minimum(j, len(local_r) - 1)], 0.)
+        else:
+            d, radii = np.full(len(idx), np.inf), np.zeros(len(idx))
+        out['seg_radius'][k] = float(np.median(radii))
+        out['offset'][k] = float(np.median(np.minimum(d, cap)))
+        d = large_tree.query(path, distance_upper_bound=r)[0] if large_tree is not None else np.full(len(path), np.inf)
+        out['coverage'][k] = float((d <= r).mean())
+    return out
+
+
+def segment_worker(args):
+    """(row, {A, t, lines, all_lines}, method) -> {population key: segment statistics}."""
+    from .sources import load_image
+    row, m, method = args
+    image = load_image(row['SDF'])
+    sdf = np.asarray(image.dataobj, dtype=np.float32)
+    sdf = sdf[..., 0] if sdf.ndim == 4 else sdf
+    centre = voxel_to_world(image.affine, np.asarray(sdf.shape, float) / 2.)
+    return {key: segment_statistics(sdf, image.affine, centre, m['A'], m['t'], m['lines'], m['all_lines'], pop)
+            for key, pop in STATE['populations'][method].items()}
+
+
+def transform_shift(lines_ref, A_ref, t_ref, A, t):
+    """RMS over the reference centreline points (template mm under (A_ref, t_ref)) of the template displacement
+    between two subject -> template maps."""
+    if not len(lines_ref):
+        return float('nan')
+    x = (np.asarray(lines_ref) - t_ref) @ np.linalg.inv(np.asarray(A_ref, float)).T   # native - centre
+    d = x @ (np.asarray(A, float) - A_ref).T + (np.asarray(t, float) - t_ref)
+    return float(np.sqrt((d ** 2).sum(1).mean()))
 
 
 # ---------------------------------------------------------------- occupancy stacks
@@ -254,12 +339,21 @@ def score_query(task):
                     scores[f'radius_{name}{part}_absz_{tag}'] = float(np.median(z)) if len(z) else np.nan
                     e = d[sel, 0]; e = e[np.isfinite(e)]
                     scores[f'radius_{name}{part}_abserr_{tag}'] = float(np.median(e)) if len(e) else np.nan
-            elements[pop_key] = {'edge_surprise': surprise, 'edge_present': yq, 'edge_p': pe,
+            seg = S['segments'][method][key][pop_key]; seg_tr = S['train_segments'][method][pop_key]
+            seg_dev = radius_deviation(seg['seg_radius'], seg_tr['seg_radius'], w)
+            p_offset = tail_p(seg['offset'], seg_tr['offset'], w, 'upper')
+            p_cover = tail_p(seg['coverage'], seg_tr['coverage'], w, 'lower')
+            for name, pp in (('segrad', seg_dev[:, 3]), ('offset', p_offset), ('coverage', p_cover)):
+                scores[f'{name}_minp_{tag}'] = float(-np.log(np.nanmin(pp))) if np.isfinite(pp).any() else np.nan
+            elements[pop_key] = {'seg_radius_absz': np.abs(seg_dev[:, 1]), 'seg_radius': seg['seg_radius'], 'seg_radius_z': seg_dev[:, 1],
+                                 'offset': seg['offset'], 'coverage': seg['coverage'], 'coverage_deficit': 1. - seg['coverage'],
+                                 'pop_p_seg_radius': seg_dev[:, 3], 'pop_p_offset': p_offset, 'pop_p_coverage': p_cover}
+            elements[pop_key].update({'edge_surprise': surprise, 'edge_present': yq, 'edge_p': pe,
                                  'conn_graph': conn['graph'], 'conn_mask': conn['mask'],
                                  'radius_absz': np.where(floor, np.nan, np.abs(dev['sdf'][:, 1])),
                                  'radius_z': dev['sdf'][:, 1], 'radius_percentile': dev['sdf'][:, 2], 'floor': floor,
                                  'pop_p_edge': outcome_p(pe, yq), 'pop_p_conn_graph': conn_p['graph'],
-                                 'pop_p_conn_mask': conn_p['mask'], 'pop_p_radius': np.where(floor, np.nan, dev['sdf'][:, 3])}
+                                 'pop_p_conn_mask': conn_p['mask'], 'pop_p_radius': np.where(floor, np.nan, dev['sdf'][:, 3])})
             if pop_key == S['primary_population']:
                 elements[pop_key]['defects'] = classify_absent(pop, yq, pe, m, y)
     return key, method, wname, scores, elements
@@ -328,9 +422,19 @@ def primary_scores(method, available):
     return out + (['affine_d2'] if method == 'learned' else [])
 
 
-ELEMENT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz')
+def extended_scores(method, available):
+    """Primary family + segment-family minimum population p (separate comparison; decoder: primary only)."""
+    prim = primary_scores(method, available)
+    return prim if method == 'decoder' else prim + ['segrad_minp_r3mm', 'offset_minp_r3mm', 'coverage_minp_r3mm']
+
+
+ELEMENT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz')   # 'any' = these (unchanged)
+NEW_FAMILIES = ('seg_radius', 'offset', 'coverage')                              # 'any_new'
+ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES
+NULL_SCORE = {'seg_radius': 'seg_radius_absz', 'offset': 'offset', 'coverage': 'coverage_deficit'}   # element, null-referenced
 POPULATION_P = {'edge_surprise': 'pop_p_edge', 'conn_graph': 'pop_p_conn_graph', 'conn_mask': 'pop_p_conn_mask',
-                'radius_absz': 'pop_p_radius'}
+                'radius_absz': 'pop_p_radius', 'seg_radius': 'pop_p_seg_radius', 'offset': 'pop_p_offset',
+                'coverage': 'pop_p_coverage'}
 
 
 def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
@@ -350,19 +454,21 @@ def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
         el = results[(k, method, wname)][1]
         for pop_key in [x for x in el if x.startswith('r')]:
             fam = {}
-            for f in ELEMENT_FAMILIES:
-                v = el[pop_key][f]
-                nulls = np.array([results[(j, method, wname)][1][pop_key][f] for j in null])
+            for f in ALL_FAMILIES:
+                v = el[pop_key][NULL_SCORE.get(f, f)]
+                nulls = np.array([results[(j, method, wname)][1][pop_key][NULL_SCORE.get(f, f)] for j in null])
                 p_el = np.array([empirical_p(v[i], nulls[:, i]) for i in range(len(v))])
                 p_pop = np.asarray(el[pop_key][POPULATION_P[f]], float)
                 fam[f] = {'p': p_el, 'reject': benjamini_hochberg(p_el, q),
                           'p_population': p_pop, 'reject_population': benjamini_hochberg(p_pop, q)}
             rec['elements'][pop_key] = fam
         rec['min_p'] = float(np.nanmin([pv[s] for s in prim]))
+        rec['min_p_ext'] = float(np.nanmin([pv.get(s, np.nan) for s in extended_scores(method, scores[k])]))
         out[k] = rec
     for k, rec in out.items():
         null = [j for j in keys_null if j != k]
         rec['p_family'] = (1. + sum(out[j]['min_p'] <= rec['min_p'] for j in null)) / (1. + len(null))
+        rec['p_family_ext'] = (1. + sum(out[j]['min_p_ext'] <= rec['min_p_ext'] for j in null)) / (1. + len(null))
     return out
 
 
@@ -372,13 +478,15 @@ def false_positive_rates(pvals, keys, alpha):
              for s in names}
     out = {'subjects': len(keys), 'nominal_alpha': alpha, 'per_score': rates,
            'primary_holm_any': float(np.mean([pvals[k]['holm_any'] for k in keys])),
-           'primary_family_minp': float(np.mean([pvals[k]['p_family'] <= alpha for k in keys]))}
+           'primary_family_minp': float(np.mean([pvals[k]['p_family'] <= alpha for k in keys])),
+           'primary_family_minp_ext': float(np.mean([pvals[k]['p_family_ext'] <= alpha for k in keys]))}
     elements = {}
     for pop_key in pvals[keys[0]]['elements']:
         elements[pop_key] = {f: {'subjects_with_discovery': float(np.mean([pvals[k]['elements'][pop_key][f]['reject'].any() for k in keys])),
                                  'mean_discoveries': float(np.mean([pvals[k]['elements'][pop_key][f]['reject'].sum() for k in keys]))}
-                             for f in ELEMENT_FAMILIES}
-        elements[pop_key]['any_family'] = float(np.mean([any(pvals[k]['elements'][pop_key][f]['reject'].any() for f in ELEMENT_FAMILIES) for k in keys]))
+                             for f in ALL_FAMILIES}
+        for name, fams in (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ALL_FAMILIES)):
+            elements[pop_key][name] = float(np.mean([any(pvals[k]['elements'][pop_key][f]['reject'].any() for f in fams) for k in keys]))
     out['elements_bh'] = elements
     population = {}
     for pop_key in pvals[keys[0]]['elements']:
@@ -388,8 +496,9 @@ def false_positive_rates(pvals, keys, alpha):
                                    'element_fraction_p_le_alpha': float(np.nanmean(np.concatenate([fam(k, f)['p_population'] <= alpha
                                                                                                     for k in keys]).astype(float)))
                                    if any(len(fam(k, f)['p_population']) for k in keys) else None}
-                               for f in ELEMENT_FAMILIES}
-        population[pop_key]['any_family'] = float(np.mean([any(fam(k, f)['reject_population'].any() for f in ELEMENT_FAMILIES) for k in keys]))
+                               for f in ALL_FAMILIES}
+        for name, fams in (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ALL_FAMILIES)):
+            population[pop_key][name] = float(np.mean([any(fam(k, f)['reject_population'].any() for f in fams) for k in keys]))
     out['elements_bh_population'] = population
     return out
 
@@ -470,7 +579,8 @@ def main():
     p.add_argument('--alpha', type=float, default=0.05); p.add_argument('--q', type=float, default=0.05)
     p.add_argument('--methods', nargs='+', default=['decoder', 'learned', 'centroid'])
     p.add_argument('--workers', type=int, default=16)
-    p.add_argument('--perturbations', help='perturbation manifest: score the fitted copies (refit set perturbed) as extra queries')
+    p.add_argument('--perturbations', nargs='+', help='perturbation manifest(s): score the fitted copies (refit sets perturbed*) as extra queries')
+    p.add_argument('--replicate-sets', nargs='*', default=[], help='replicate refits of the validation subjects (e.g. valrep1), scored like copies')
     p.add_argument('--perturbed-weightings', nargs='+', default=['uniform'])
     a = p.parse_args()
     started = time.time()
@@ -487,11 +597,21 @@ def main():
     for s in refit:
         if set(refit[s]) != set(sets[s]):
             raise ValueError(f'Refitted {s} subjects differ from the set ({len(refit[s])} vs {len(sets[s])})')
+    for name in a.replicate_sets:
+        refit[name] = load_fitted(a.refit, name)
+        if set(refit[name]) != set(sets['validation']):
+            raise ValueError(f'Replicate set {name}: subjects differ from the validation set')
     manifest, copy_frame = None, None
     if a.perturbations:
         from .perturbation import configure, copy_rows
-        manifest = configure(a.perturbations)
-        refit['perturbed'] = load_fitted(a.refit, 'perturbed')
+        manifests = [configure(path, reset=(i == 0)) for i, path in enumerate(a.perturbations)]
+        for m_ in manifests[1:]:
+            if [t_['population_edge'] for t_ in m_['targets']] != [t_['population_edge'] for t_ in manifests[0]['targets']]:
+                raise ValueError('Perturbation manifests with different targets')
+        manifest = dict(manifests[0], copies=[c for m_ in manifests for c in m_['copies']])
+        if len({c['copy_id'] for c in manifest['copies']}) != len(manifest['copies']):
+            raise ValueError('Duplicate copy ids across manifests')
+        refit['perturbed'] = load_fitted(a.refit, 'perturbed')   # also matches fitted_perturbed_c_*.pt
         copy_frame = copy_rows(manifest)
         copy_frame = copy_frame[copy_frame.subject_id.isin(refit['perturbed'])]  # only copies whose refit finished
     _, shape, affine = world_grid(config, [1.0] * 3)
@@ -517,6 +637,7 @@ def main():
     query_rows = [(s, set_name, frame.set_index('subject_id', drop=False).loc[s] if set_name != 'validation'
                    else val_rows.set_index('subject_id', drop=False).loc[s]) for set_name in ('null', 'calibration', 'validation')
                   for s in sets[set_name]]
+    query_rows += [(s, name, val_rows.set_index('subject_id', drop=False).loc[s]) for name in a.replicate_sets for s in sets['validation']]
     if copy_frame is not None:
         query_rows += [(row.subject_id, 'perturbed', row) for _, row in copy_frame.iterrows()]
     with Pool(a.workers) as pool:
@@ -579,6 +700,19 @@ def main():
             query_attr[m] = dict(zip(keys, res))
     STATE['train_attributes'] = train_attr
     STATE['attributes'] = query_attr
+    # segment statistics (B1-B3) per method: training subjects (trained transforms) and queries
+    seg_fields = ('A', 't', 'lines', 'all_lines')
+    train_seg, query_seg = {}, {}
+    with Pool(a.workers) as pool:
+        for m in graph_methods:
+            res = pool.map(segment_worker, [(row, {f: train_prep[i]['methods'][m][f] for f in seg_fields}, m) for i, row in enumerate(rows_train)])
+            train_seg[m] = {key: {stat: np.array([r[key][stat] for r in res]) for stat in ('seg_radius', 'offset', 'coverage')}
+                            for key in populations[m]}
+            keys = list(queries)
+            res = pool.map(segment_worker, [(queries[k]['row'], {f: queries[k]['methods'][m][f] for f in seg_fields}, m) for k in keys])
+            query_seg[m] = dict(zip(keys, res))
+    STATE['train_segments'] = train_seg
+    STATE['segments'] = query_seg
     STATE['train_affine'] = np.array([affine_vector(train_a[i], train_t[i]) for i in range(len(train_ids))])
     prep_s = time.time() - started
     # calibration selection on the calibration set (uniform and the first age weighting)
@@ -596,8 +730,10 @@ def main():
     # scoring
     eval_keys = [k for k in queries if queries[k]['set'] in ('null', 'validation')]
     keys_pert = [k for k in queries if queries[k]['set'] == 'perturbed']
+    rep_sets = {name: [k for k in queries if queries[k]['set'] == name] for name in a.replicate_sets}
+    keys_rep = [k for ks in rep_sets.values() for k in ks]
     tasks = [(k, m, wn, sg, queries[k]['set'] == 'validation' and wn == 'uniform') for k in eval_keys for m in a.methods for wn, sg in weightings]
-    tasks += [(k, m, wn, sg, False) for k in keys_pert for m in a.methods for wn, sg in weightings if wn in a.perturbed_weightings]
+    tasks += [(k, m, wn, sg, False) for k in keys_pert + keys_rep for m in a.methods for wn, sg in weightings if wn in a.perturbed_weightings]
     with Pool(a.workers) as pool:
         results = {(k, m, wn): (sc, el) for k, m, wn, sc, el in pool.imap_unordered(score_query, tasks, chunksize=4)}
     score_s = time.time() - started - prep_s - cal_s
@@ -616,10 +752,13 @@ def main():
     for m in a.methods:
         for wn, _ in weightings:
             pert = keys_pert if wn in a.perturbed_weightings else []
-            pv = null_pvalues(results, m, wn, keys_null, keys_val + pert, a.alpha, a.q)
+            reps = keys_rep if wn in a.perturbed_weightings else []
+            pv = null_pvalues(results, m, wn, keys_null, keys_val + pert + reps, a.alpha, a.q)
             if pert:
                 summary.setdefault('sensitivity', {})[f'{m}/{wn}'] = detection_report(
-                    manifest, queries, results, pv, m, wn, keys_val, pert, a.alpha)
+                    manifest, queries, results, pv, m, wn, keys_val, pert, a.alpha, reps)
+            if reps:
+                summary.setdefault('replicates', {})[f'{m}/{wn}'] = replicate_report(queries, results, pv, m, wn, keys_val, rep_sets, a.alpha)
             summary['fpr'][f'{m}/{wn}'] = {'null_loo': false_positive_rates(pv, keys_null, a.alpha),
                                           'validation': false_positive_rates(pv, keys_val, a.alpha)}
             names = sorted(results[(keys_null[0], m, wn)][0])
@@ -642,7 +781,7 @@ def main():
                     write_subject_report(out, queries[k], m, wn, sc, el, pv[k], populations.get(m, {}), affine, shape)
     pd.DataFrame(tables).to_csv(out / 'scores.tsv', sep='\t', index=False)
     if manifest is not None:
-        summary['perturbations'] = {'manifest': str(Path(a.perturbations).resolve()), 'copies_in_manifest': len(manifest['copies']),
+        summary['perturbations'] = {'manifests': [str(Path(x).resolve()) for x in a.perturbations], 'copies_in_manifest': len(manifest['copies']),
                                     'copies_scored': len(keys_pert), 'willis_centre_mm': manifest['willis_centre_mm'],
                                     'targets': manifest['targets'], 'eligible_subjects': manifest['eligible_subjects']}
     summary['runtime_s'] = {'preparation': prep_s, 'calibration': cal_s, 'scoring': score_s, 'total': time.time() - started}
@@ -663,26 +802,53 @@ def target_elements(pop, target_path, r):
 
 
 def element_flags(fam, edges, nodes, reject_key):
-    out = {f: bool(fam[f][reject_key][edges].any()) if edges else False for f in ('edge_surprise', 'conn_graph', 'conn_mask')}
+    """Discoveries among the elements mapped to the perturbed target: edge families on its edges, node radius on their
+    end nodes. 'any' = the original four families (unchanged), 'any_new' = segment families, 'any_all' = both."""
+    out = {f: bool(fam[f][reject_key][edges].any()) if edges else False for f in ('edge_surprise', 'conn_graph', 'conn_mask') + NEW_FAMILIES}
     out['radius_absz'] = bool(fam['radius_absz'][reject_key][nodes].any()) if nodes else False
-    out['any'] = any(out.values())
+    out['any'] = any(out[f] for f in ELEMENT_FAMILIES)
+    out['any_new'] = any(out[f] for f in NEW_FAMILIES)
+    out['any_all'] = out['any'] or out['any_new']
     return out
 
 
-def detection_report(manifest, queries, results, pv, method, wname, keys_val, keys_pert, alpha):
+def copy_targets(manifest):
+    """Copies by id; (subject, population edge) pairs."""
+    return {c['copy_id']: c for c in manifest['copies']}
+
+
+def target_flags(pv_k, method, pop_key, edges, nodes):
+    out = {}
+    for ref, key in (('population', 'reject_population'), ('null', 'reject')):
+        out.update({f'{ref}_{f}': v for f, v in element_flags(pv_k['elements'][pop_key], edges, nodes, key).items()})
+    return out
+
+
+def detection_report(manifest, queries, results, pv, method, wname, keys_val, keys_pert, alpha, replicate_keys=()):
     """Sensitivity on perturbed copies: perturbed element detected after BH (population- and null-referenced p-values),
-    per family; subject detection by family min-p; the same elements / subject test on the unperturbed validation
-    subject as the matched false-positive reference."""
-    copies = {c['copy_id']: c for c in manifest['copies']}
+    per family; subject detection by family min-p (primary; extended as a separate column); the same elements /
+    subject test on the unperturbed validation subject (baseline) and on its replicate refits (replicate_*, mean over
+    replicates: refit variability alone); RMS transform difference copy refit vs original validation fit."""
+    copies = copy_targets(manifest)
     pop_key = STATE['primary_population']
     learned_pop = STATE['populations'].get('learned', {}).get(pop_key)
+    reps = {}
+    for r in replicate_keys:
+        reps.setdefault(queries[r]['subject_id'], []).append(r)
     rows = []
     for k in keys_pert:
         c = copies[queries[k]['subject_id']]
         base = f'validation/{c["subject_id"]}'
+        rk = reps.get(c['subject_id'], [])
+        mq, mb = queries[k]['methods']['learned'], queries[base]['methods']['learned']
         row = {'copy_id': c['copy_id'], 'subject_id': c['subject_id'], 'kind': c['kind'], 'magnitude': c['magnitude'],
+               'factor': c.get('factor'), 'label': copy_label(c),
                'population_edge': c['population_edge'], 'p_edge': c['p_edge'], 'segment_radius_mm': c['segment_radius_mm'],
-               'subject_detected': pv[k]['p_family'] <= alpha, 'baseline_subject_detected': pv[base]['p_family'] <= alpha}
+               'subject_detected': pv[k]['p_family'] <= alpha, 'baseline_subject_detected': pv[base]['p_family'] <= alpha,
+               'subject_detected_ext': pv[k]['p_family_ext'] <= alpha, 'baseline_subject_detected_ext': pv[base]['p_family_ext'] <= alpha,
+               'replicate_subject_detected': float(np.mean([pv[r]['p_family'] <= alpha for r in rk])) if rk else None,
+               'replicate_subject_detected_ext': float(np.mean([pv[r]['p_family_ext'] <= alpha for r in rk])) if rk else None,
+               'transform_rms_mm': transform_shift(mb['lines'], mb['A'], mb['t'], mq['A'], mq['t'])}
         if method != 'decoder':
             pop = STATE['populations'][method][pop_key]
             target_path = learned_pop['edge_points_mm'][c['population_edge']]
@@ -690,28 +856,82 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
             row.update(mapped_edges=edges, mapped_nodes=nodes)
             el = results[(k, method, wname)][1][pop_key]
             row['target_present_after'] = bool(el['edge_present'][edges].all()) if edges else None
-            for ref, key in (('population', 'reject_population'), ('null', 'reject')):
-                flags = element_flags(pv[k]['elements'][pop_key], edges, nodes, key)
-                base_flags = element_flags(pv[base]['elements'][pop_key], edges, nodes, key)
-                row.update({f'{ref}_{f}': v for f, v in flags.items()})
-                row.update({f'baseline_{ref}_{f}': v for f, v in base_flags.items()})
+            for name in ('seg_radius', 'offset', 'coverage'):
+                row[f'target_{name}'] = float(np.nanmean(el[name][edges])) if edges else None
+                row[f'baseline_target_{name}'] = float(np.nanmean(results[(base, method, wname)][1][pop_key][name][edges])) if edges else None
+            row.update(target_flags(pv[k], method, pop_key, edges, nodes))
+            row.update({f'baseline_{n}': v for n, v in target_flags(pv[base], method, pop_key, edges, nodes).items()})
+            if rk:
+                rf = [target_flags(pv[r], method, pop_key, edges, nodes) for r in rk]
+                row.update({f'replicate_{n}': float(np.mean([f[n] for f in rf])) for n in rf[0]})
         rows.append(row)
     table = pd.DataFrame(rows)
     groups = {}
-    for (kind, magnitude), g in table.groupby(['kind', 'magnitude']):
-        entry = {'copies': len(g), 'subjects': int(g.subject_id.nunique()),
-                 'subject_detection': float(g.subject_detected.mean()), 'baseline_subject_detection': float(g.baseline_subject_detected.mean())}
+    for label, g in table.groupby('label', sort=False):
+        entry = {'kind': g.kind.iloc[0], 'magnitude': float(g.magnitude.iloc[0]),
+                 'factor': None if pd.isna(g.factor.iloc[0]) else float(g.factor.iloc[0]),
+                 'copies': len(g), 'subjects': int(g.subject_id.nunique()),
+                 'subject_detection': float(g.subject_detected.mean()), 'baseline_subject_detection': float(g.baseline_subject_detected.mean()),
+                 'subject_detection_ext': float(g.subject_detected_ext.mean()),
+                 'baseline_subject_detection_ext': float(g.baseline_subject_detected_ext.mean()),
+                 'subjects_detected': int(g.groupby('subject_id').subject_detected.any().sum()),
+                 'subjects_detected_ext': int(g.groupby('subject_id').subject_detected_ext.any().sum()),
+                 'transform_rms_mm_median': float(g.transform_rms_mm.median()), 'transform_rms_mm_p90': float(g.transform_rms_mm.quantile(0.9))}
+        if g.replicate_subject_detected.notna().any():
+            entry['replicate_subject_detection'] = float(g.replicate_subject_detected.mean())
+            entry['replicate_subject_detection_ext'] = float(g.replicate_subject_detected_ext.mean())
         if method != 'decoder':
-            for col in [c for c in g.columns if c.startswith(('population_', 'null_', 'baseline_population_', 'baseline_null_'))
-                        and c != 'population_edge']:
-                entry[col] = float(g[col].mean())
+            for col in [c for c in g.columns if c.startswith(('population_', 'null_', 'baseline_population_', 'baseline_null_',
+                                                               'replicate_population_', 'replicate_null_', 'target_', 'baseline_target_'))
+                        and c not in ('population_edge', 'target_present_after')]:
+                entry[col] = float(g[col].dropna().astype(float).mean()) if g[col].notna().any() else None
             entry['target_present_after'] = float(g.target_present_after.dropna().mean()) if g.target_present_after.notna().any() else None
-            entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]), 'population_any': float(h.population_any.mean()),
-                                          'null_any': float(h.null_any.mean()), 'subject': float(h.subject_detected.mean())}
+            entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]),
+                                          **{f'{ref}_{f}': float(h[f'{ref}_{f}'].mean()) for ref in ('population', 'null')
+                                             for f in ('any', 'any_new', 'any_all') + NEW_FAMILIES},
+                                          'subject': float(h.subject_detected.mean()), 'subject_ext': float(h.subject_detected_ext.mean())}
                                  for e, h in g.groupby('population_edge')}
-        groups[f'{kind}{magnitude:g}'] = entry
-    validation_fpr = {'subject_family_minp': float(np.mean([pv[k]['p_family'] <= alpha for k in keys_val]))}
+        groups[label] = entry
+    validation_fpr = {'subject_family_minp': float(np.mean([pv[k]['p_family'] <= alpha for k in keys_val])),
+                      'subject_family_minp_ext': float(np.mean([pv[k]['p_family_ext'] <= alpha for k in keys_val]))}
     return {'by_perturbation': groups, 'validation_fpr': validation_fpr, 'copies': rows}
+
+
+def replicate_report(queries, results, pv, method, wname, keys_val, rep_sets, alpha):
+    """Refit variability on the unperturbed validation subjects: per replicate set the false-positive-style rates
+    (same definitions as validation), transform shift vs the original fit, and per primary score the within-subject
+    SD over all fits (original + replicates) against the between-subject SD of the original fits."""
+    out = {}
+    for name, keys in rep_sets.items():
+        out[name] = {'fpr': false_positive_rates(pv, keys, alpha)}
+    out['transform_shift_mm'] = {}
+    for name, keys in rep_sets.items():
+        shifts = {}
+        for r in keys:
+            s = queries[r]['subject_id']; mb = queries[f'validation/{s}']['methods']['learned']; mr = queries[r]['methods']['learned']
+            shifts[s] = transform_shift(mb['lines'], mb['A'], mb['t'], mr['A'], mr['t'])
+        out['transform_shift_mm'][name] = shifts
+    allshift = [v for d in out['transform_shift_mm'].values() for v in d.values()]
+    out['transform_shift_summary'] = {'median': float(np.median(allshift)), 'p90': float(np.quantile(allshift, 0.9)),
+                                      'max': float(np.max(allshift))} if allshift else None
+    fits = {queries[k]['subject_id']: [k] for k in keys_val}
+    for keys in rep_sets.values():
+        for r in keys:
+            fits[queries[r]['subject_id']].append(r)
+    names = pv[keys_val[0]]['primary'] + [s for s in extended_scores(method, pv[keys_val[0]]['p']) if s not in pv[keys_val[0]]['primary']]
+    var = {}
+    for sname in names:
+        vals = {s: np.array([results[(k, method, wname)][0].get(sname, np.nan) for k in ks], float) for s, ks in fits.items()}
+        within = np.sqrt(np.nanmean([np.nanvar(v, ddof=1) for v in vals.values() if np.isfinite(v).sum() > 1]))
+        between = float(np.nanstd([v[0] for v in vals.values()], ddof=1))
+        pvals = {s: [pv[k]['p'].get(sname, np.nan) for k in ks] for s, ks in fits.items()}
+        var[sname] = {'within_subject_sd': float(within), 'between_subject_sd': between,
+                      'ratio': float(within / between) if between > 0 else None,
+                      'p_le_alpha_any_fit_vs_original': [float(np.mean([any(np.array(p) <= alpha) for p in pvals.values()])),
+                                                         float(np.mean([p[0] <= alpha for p in pvals.values()]))]}
+    out['score_variability'] = var
+    out['subject_flag_agreement'] = {s: [bool(pv[k]['p_family'] <= alpha) for k in ks] for s, ks in fits.items()}
+    return out
 
 
 def write_subject_report(out, query, method, wname, scores, elements, pv, pops, affine, shape):
