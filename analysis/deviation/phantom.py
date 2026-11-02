@@ -75,7 +75,7 @@ def tube(path, radii, spacing, offset, margin_mm=4.):
     inside = np.zeros(len(world), bool)
     ok = np.isfinite(d)
     inside[ok] = d[ok] <= dense_r[j[ok]]
-    sdf = signed_distance(inside.reshape(shape), affine)
+    sdf = signed_distance(inside.reshape(shape), affine) if inside.any() else None   # None: vessel vanished on the grid
     length = np.r_[0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
     idx = np.unique(np.searchsorted(length, np.arange(0., length[-1] + 1e-9, NODE_STEP_MM)).clip(0, len(path) - 1))
     graph = {'pos': path[idx], 'radius': radii[idx], 'edges': np.c_[np.arange(len(idx) - 1), np.arange(1, len(idx))]}
@@ -83,6 +83,8 @@ def tube(path, radii, spacing, offset, margin_mm=4.):
 
 
 def measure(sdf, affine, graph, path):
+    if sdf is None:   # no voxel centre inside the tube: nothing to measure (counted in nan_fraction)
+        return {rule: np.nan for rule in RULES}
     pts, eid = edge_samples(graph['pos'], graph['edges'], 0.4)
     raw = -ndi.map_coordinates(sdf, world_to_voxel(affine, pts).T, order=1, mode='nearest')
     keep, _ = matched_interior(pts, eid, path, path[0], path[-1], 3.)

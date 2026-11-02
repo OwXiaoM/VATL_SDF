@@ -385,6 +385,8 @@ class DetectabilityTests(unittest.TestCase):
         slope = (thin['segmatch_med'] - base['segmatch_med']) / (1. - 2.)
         self.assertTrue(0.7 <= slope <= 1.3, slope)
         self.assertTrue(np.isnan(thin['node_absz']))                       # radius_absz rule: graph radius 1 < 1.2
+        gone = measure(*tube(path, np.full(len(path), 0.2), (0.9375, 0.9375, 0.8), np.zeros(3)), path)   # nearest centre 0.49 mm off-axis
+        self.assertTrue(all(np.isnan(v) for v in gone.values()))           # vessel vanished on the grid
 
     def test_phantom_curved_and_stenosis(self):
         from analysis.deviation.phantom import centreline, measure, profile, tube
