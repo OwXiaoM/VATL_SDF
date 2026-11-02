@@ -582,6 +582,8 @@ def main():
     p.add_argument('--perturbations', nargs='+', help='perturbation manifest(s): score the fitted copies (refit sets perturbed*) as extra queries')
     p.add_argument('--replicate-sets', nargs='*', default=[], help='replicate refits of the validation subjects (e.g. valrep1), scored like copies')
     p.add_argument('--perturbed-weightings', nargs='+', default=['uniform'])
+    p.add_argument('--save-elements', action='store_true', help='write elements_<method>.npz (training and query segment, '
+                                                                 'presence and node-radius arrays, uniform weighting; diagnostics)')
     a = p.parse_args()
     started = time.time()
     out = Path(a.output); out.mkdir(parents=True, exist_ok=False)
@@ -780,6 +782,10 @@ def main():
                 if wn == 'uniform' or wn == weightings[1][0]:
                     write_subject_report(out, queries[k], m, wn, sc, el, pv[k], populations.get(m, {}), affine, shape)
     pd.DataFrame(tables).to_csv(out / 'scores.tsv', sep='\t', index=False)
+    if a.save_elements:
+        for m in graph_methods:
+            if m in a.methods:
+                save_elements(out / f'elements_{m}.npz', m, train_ids, keys_null + keys_val + keys_rep + keys_pert, queries, results)
     if manifest is not None:
         summary['perturbations'] = {'manifests': [str(Path(x).resolve()) for x in a.perturbations], 'copies_in_manifest': len(manifest['copies']),
                                     'copies_scored': len(keys_pert), 'willis_centre_mm': manifest['willis_centre_mm'],
@@ -787,6 +793,29 @@ def main():
     summary['runtime_s'] = {'preparation': prep_s, 'calibration': cal_s, 'scoring': score_s, 'total': time.time() - started}
     (out / 'deviation.json').write_text(json.dumps(summary, indent=1, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o)))
     print(json.dumps({k: {g: v[g]['primary_holm_any'] for g in v} for k, v in summary['fpr'].items()}, indent=1))
+
+
+SAVED_ELEMENTS = ('seg_radius', 'offset', 'coverage', 'floor', 'pop_p_radius', 'pop_p_seg_radius', 'pop_p_offset', 'pop_p_coverage')
+
+
+def save_elements(path, method, train_ids, keys, queries, results):
+    """Diagnostics dump (uniform weighting): per population, training arrays (trained transforms; rows = train_ids)
+    and query arrays (rows = keys): segment statistics, large-vessel presence, node radius (sdf, graph), floor flags
+    and population p-values."""
+    arrays = {'train_ids': np.array(train_ids), 'query_keys': np.array(keys),
+              'query_sets': np.array([queries[k]['set'] for k in keys]), 'query_subjects': np.array([queries[k]['subject_id'] for k in keys])}
+    for pop_key in STATE['populations'][method]:
+        seg = STATE['train_segments'][method][pop_key]
+        for stat in ('seg_radius', 'offset', 'coverage'):
+            arrays[f'{pop_key}/train_{stat}'] = seg[stat]
+        arrays[f'{pop_key}/train_presence'] = STATE['presence'][method][pop_key]
+        arrays[f'{pop_key}/train_node_radius'] = np.array([r['populations'][pop_key]['node_radius'] for r in STATE['train_attributes'][method]])
+        el = [results[(k, method, 'uniform')][1][pop_key] for k in keys]
+        for name in SAVED_ELEMENTS:
+            arrays[f'{pop_key}/query_{name}'] = np.array([np.asarray(e[name], float) for e in el])
+        arrays[f'{pop_key}/query_presence'] = np.array([e['edge_present'] for e in el], bool)
+        arrays[f'{pop_key}/query_node_radius'] = np.array([STATE['attributes'][method][k]['populations'][pop_key]['node_radius'] for k in keys])
+    np.savez_compressed(path, **arrays)
 
 
 def target_elements(pop, target_path, r):

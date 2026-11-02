@@ -252,9 +252,34 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         with mock.patch.object(sys, 'argv', ['x', *common, '--decodings', str(d / 'dec'), '--refit', str(d / 'refit'), '--output', str(out),
                                              '--min-skeleton-voxels', '1', '--radii-mm', '3', '2', '--age-sigmas', '7',
                                              '--smooth-mm', '0', '--recalibration', 'none', '--perturbations', str(manifest), '--workers', '1',
-                                             '--replicate-sets', 'valrep1']):
+                                             '--replicate-sets', 'valrep1', '--save-elements']):
             deviation.main()
         summary = json.loads((out / 'deviation.json').read_text())
+        dump = np.load(out / 'elements_learned.npz', allow_pickle=False)
+        keys = list(dump['query_keys'])
+        self.assertIn('null/s0', keys); self.assertIn('valrep1/s6', keys)
+        self.assertTrue(any(k.startswith('perturbed/') for k in keys))
+        n_train = len(dump['train_ids'])
+        for stat in ('seg_radius', 'offset', 'coverage'):
+            self.assertEqual(dump[f'r3mm_tau0.1/train_{stat}'].shape[0], n_train)
+            self.assertEqual(dump[f'r3mm_tau0.1/query_{stat}'].shape[0], len(keys))
+        self.assertEqual(dump['r3mm_tau0.1/train_node_radius'].shape[-1], 2)
+        self.assertEqual(dump['r3mm_tau0.1/train_presence'].shape, dump['r3mm_tau0.1/train_coverage'].shape)
+        self.assertEqual(dump['r3mm_tau0.1/query_node_radius'].shape[:2], (len(keys), dump['r3mm_tau0.1/train_node_radius'].shape[1]))
+        for name in ('query_floor', 'query_pop_p_radius', 'query_pop_p_seg_radius', 'query_pop_p_offset', 'query_pop_p_coverage', 'query_presence'):
+            self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
+        # code fact used by D0/D1: presence == (coverage >= edge_cover) on the same points and radius
+        cov, pres = dump['r3mm_tau0.1/query_coverage'], dump['r3mm_tau0.1/query_presence']
+        np.testing.assert_array_equal(pres.astype(bool), cov >= 0.5)
+        self.assertTrue((out / 'elements_centroid.npz').is_file())
+        self.assertFalse((out / 'elements_decoder.npz').exists())
+        from analysis.deviation import segment_diagnostics
+        with mock.patch.object(sys, 'argv', ['x', str(out)]):
+            segment_diagnostics.main()
+        d0 = json.loads((out / 'd0_report.json').read_text())
+        self.assertEqual(set(d0['nodes']['learned']['remove0']['node_counts']), {'copy', 'baseline'})
+        self.assertIn('all_edges', d0['offset']['centroid'])
+        self.assertAlmostEqual(d0['offset']['centroid']['all_edges']['median_of_edge_median_shift'], 0.)   # centroid: no refit
         self.assertEqual(summary['perturbations']['copies_scored'], min(3, len(m['copies'])))
         sens = summary['sensitivity']['learned/uniform']
         self.assertIn('remove0', sens['by_perturbation'])
@@ -279,6 +304,41 @@ class PerturbationPipelineTests(DeviationPipelineTests):
 
 def scores_sets(out):
     return pd.read_csv(out / 'scores.tsv', sep='\t', keep_default_na=False, na_values=['']).set.unique()
+
+
+class SegmentDiagnosticsTests(unittest.TestCase):
+    """analysis/deviation/segment_diagnostics.py (Step D0)."""
+
+    def test_floor_p_and_zero_fraction(self):
+        from analysis.deviation.segment_diagnostics import bh_rank1, min_population_p, zero_fraction
+        col = np.array([0., 0., 0.05, 1., 1.5, 2., 2.5, 3.])
+        self.assertAlmostEqual(zero_fraction(col, 0.1), 3 / 8)
+        self.assertAlmostEqual(min_population_p(col, 'seg_radius'), min(1., 2 * (2 + 1) / (8 + 1)))   # v = 0, two-sided (2 zeros)
+        self.assertAlmostEqual(min_population_p(col, 'coverage'), (2 + 1) / (8 + 1))                 # v = 0, lower tail (ties)
+        self.assertAlmostEqual(min_population_p(np.array([1., 2., 3.]), 'coverage'), 1 / 4)
+        self.assertAlmostEqual(bh_rank1(0.05, np.array([0.3, np.nan, 0.2, 0.9])), 0.05 / 3)
+
+    def test_node_categories(self):
+        from analysis.deviation.segment_diagnostics import node_categories
+        node_r = np.array([[1.5, 1.4], [np.nan, np.nan], [0.5, 0.7], [1.2, 1.3]])
+        floor = np.array([False, False, True, False]); tested = np.array([True, False, False, False])
+        self.assertEqual(list(node_categories(node_r, floor, tested)), ['tested', 'absent', 'floor', 'untested'])
+
+    def test_large_vessel_points_never_floor(self):
+        """Graph radius of large-vessel points is interpolated between endpoint radii >= 1.2 mm: never <= floor."""
+        from vatl_sdf.vessel_attribute_atlas import FLOOR_MM, centreline_samples
+        graph = {'pos': np.array([[0., 0, 0], [5, 0, 0], [9, 0, 0]]), 'radius': np.array([1.2, 2.0, 0.5]),
+                 'edges': np.array([[0, 1], [1, 2]])}
+        points, eid, r = centreline_samples(graph)
+        large = (graph['radius'][graph['edges'][eid]] >= 1.2).all(1)
+        self.assertTrue(large.any()); self.assertFalse((r[large] <= FLOOR_MM).any())
+
+    def test_paired_offset_shift(self):
+        from analysis.deviation.segment_diagnostics import distribution_summary
+        s = distribution_summary(np.array([1., 2., 3., 4.]), np.array([2., 3., 4., 5.]), paired=np.array([1., 1., 1., 1.]))
+        self.assertAlmostEqual(s['train_median'], 2.5); self.assertAlmostEqual(s['null_median'], 3.5)
+        self.assertAlmostEqual(s['paired_shift_median'], 1.)
+        self.assertAlmostEqual(s['train_iqr'], 1.5)
 
 
 class DeviationStatisticsTests(unittest.TestCase):

@@ -1955,3 +1955,62 @@ Hypotheses (untested):
   the segment ends at normal radius, so the narrowed interior nodes stay above the floor and are tested.
 - The reverse displacement trend: at 2 mm the mapped large-vessel edge is still matched (present 0.72) but its
   node radii are mis-measured, while at 3-5 mm the edge is more often unmatched and drops out of the radius test.
+
+## Stage: diagnose and fix the segment families; radius-floor test (user request 2026-11-02)
+
+No new training or refits: existing fitted files (null 300, validation, valrep1-3, both manifests = 664 copies). Same
+model, populations (r3mm_tau0.1 primary, r2mm_tau0.1), sets, null 300, alpha = q = 0.05, uniform weighting primary.
+User: write the plan, submit the jobs; run D0, D1, D2, D3 in order, report after each.
+
+### Step 0: plan (2026-11-02)
+
+Code facts found while planning (from the code, verified in CPU tests):
+- Large-vessel presence of a population edge (graph_atlas.presence) and coverage (Step B3) use the same points, the
+  same radius and the same large-vessel centreline: present <=> coverage >= edge_cover (0.5) exactly.
+- radius_absz floor rule: node radius = median over the subject's LARGE-VESSEL centreline points within r of the
+  node; their graph radius is linearly interpolated between two endpoint radii >= 1.2 mm, so it is never <= 0.801 mm.
+  The floor rule therefore cannot exclude a node; nodes without large-vessel points within r are NaN (absent),
+  not floor. The radius-floor hypothesis (CONTEXT Step C) is expected to be refuted; D0 checks it on the data.
+D0 (diagnostics only, no statistic change): deviation run identical to job 47203 plus --save-elements, which writes
+  elements_<method>.npz (uniform): training arrays under trained transforms (seg_radius, offset, coverage, presence,
+  node radius sdf/graph) and per query (null, validation, valrep, copies) the same plus floor flags and population
+  p-values. Regression: all FPRs and sensitivities must equal job 47203. Then analysis/deviation/segment_diagnostics.py
+  (CPU job) writes d0_report.json:
+  * per target edge (learned; centroid via its mapped edges): fraction of training subjects with seg_radius <= 0.1 mm
+    (one tenth of a voxel) and coverage <= 0.05 (and exactly 0) vs 1 - training presence; smallest achievable
+    population p of a query value 0 (seg_radius two-sided, coverage lower tail; uniform, all training subjects); BH
+    rank-1 threshold q / m (m = finite elements of the family, median over null queries); observed min target p of
+    thin0.3 / removal copies;
+  * offset: training (trained transforms) vs null queries (refitted) per target edge and over all edges (median, IQR),
+    paired shift refitted - trained on the 300 null subjects (centroid: 0 by construction), null fraction pop p <= 0.05;
+  * nodes: per thin0.5 / thin0.3 / stenosis0.5 / stenosis0.3 (and removal) copy, mapped target nodes tested by
+    radius_absz (finite population p) / floor-excluded / absent (no large-vessel point within r) / untested, vs the
+    unperturbed validation baseline of the same pair; transitions; SDF radius change on nodes tested in both.
+D1 (new rows; old families and the Step B families unchanged):
+  * present = existing large-vessel presence (graph edges with both endpoint radii >= 1.2 mm, 0.4 mm samples, mapped
+    by the method's transform, within r of >= 50% of the population edge's path samples; training: trained
+    transforms; null and other queries: refitted / centroid).
+  * seg_radius_cond: population p = two-sided radius tail (radius_deviation, one pseudo-subject) against training
+    subjects with the edge present (weights w x present, >= 3 subjects, else NaN); null-referenced score = |robust z|
+    against the same conditional distribution, empirical p against the null queries with the edge present (LOO).
+  * coverage_cond: lower tail against present training subjects; null score = 1 - coverage against present null
+    queries. Consequence of the code fact: present subjects have coverage >= 0.5, so every absent query element gets
+    the smallest attainable p (about 1 / (n_present + 1)); coverage_cond then re-tests absence without the
+    1 - p_edge prior. Expectation (hypothesis): high FPR.
+  * absent-query elements (query edge not present): primary D1 rows score them like any element (as requested).
+    Reported separately: discoveries split by query presence (target elements and null / validation FPR), and a
+    separate row *_condpresent where absent-query elements get p = NaN (left to the edge-presence family).
+  * any_new_cond (seg_radius_cond, coverage_cond) apart from any (old) and any_new (Step B); per-edge breakdown with
+    p_edge; 8 perturbation labels; learned and centroid; population- and null-referenced.
+  * subject level, separate comparison: conditional-extended family min-p = primary scores + -log(min population p)
+    of seg_radius_cond and coverage_cond (primary population), calibrated on the null like the other min-p.
+D2 (offset, null-referenced only): the null-referenced offset row is already computed (Step B, jobs 47197 / 47203)
+  and is reported alone (population reference dropped). Variant "population reference from the null refits": with
+  uniform weights its tail p (#{x >= v} + 1) / (N + 1) over the other null queries equals the null-referenced
+  empirical p exactly, so the row is identical by construction (differs only under age weighting); D0 checks this
+  numerically from the dump instead of a separate run.
+D3 (only if D0 supports the floor hypothesis): radius_absz_floorkeep = radius_absz with floor nodes kept when the
+  population median graph radius at the node is > 0.801 mm. If D0 shows no floor exclusions, D3 is not run and the
+  observed exclusion mechanism is reported with a proposal instead.
+Jobs (CPU only, frozen worktrees): D0 deviation (16 CPU, ~40 min) + diagnostics (4 CPU, QOS dev, ~5 min, afterok);
+D1 deviation (16 CPU, ~45 min; also serves D2's regression) after D1 code and tests.
