@@ -786,8 +786,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47727 | G0.3 phantom.py (in memory; 12 radii x 2 shapes x 30 placements x 5 conditions) (CPU, QOS dev) | 16 CPU, frozen 9466a0f | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 1 | FAILED 7 s: empty mask (0.8 mm x 0.3 vanishes on the grid); fixed, rerun 47731 |
 | 47731 | G0.3 phantom rerun (vanished vessels counted as NaN) (CPU, QOS dev) | 16 CPU, frozen 6cceded | sdf_only/analysis/20261102_detectability_G0/g0_phantom.json | 0 | completed 7 s |
 | 47748 | G0.4 decision_table.py (G0 JSON + phantom JSON) (CPU, QOS dev) | 2 CPU, frozen fcb633d | sdf_only/analysis/20261102_detectability_G0/g0_decision_table.json | 0 | completed |
-| 47781 | P1 deviation: as 47672 + segmatch_q25_apriori / segmatch_med_apriori (CPU, QOS normal) | 16 CPU, frozen 8a4d279 | sdf_only/analysis/20261102_deviation_P1 | | submitted |
-| 47782 | P1 floor check: detectability.py on the P1 dumps (afterok 47781) (CPU, QOS dev) | 4 CPU, frozen 8a4d279 | sdf_only/analysis/20261102_detectability_P1/p1_detectability.json | | submitted (dependency) |
+| 47781 | P1 deviation: as 47672 + segmatch_q25_apriori / segmatch_med_apriori (CPU, QOS normal) | 16 CPU, frozen 8a4d279 | sdf_only/analysis/20261102_deviation_P1 | 0 | completed 35 min; all previous fields identical to 47672 |
+| 47782 | P1 floor check: detectability.py on the P1 dumps (afterok 47781) (CPU, QOS dev) | 4 CPU, frozen 8a4d279 | sdf_only/analysis/20261102_detectability_P1/p1_detectability.json | 0 | completed 3 s |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2539,3 +2539,36 @@ Reports: FPR next to sensitivity for 8 labels, learned and centroid, both refere
 CPU tests first: pipeline keys, NaN outside F, deviation.json family list, floor rows.
 Jobs (CPU, frozen worktree): P1 deviation (16 CPU, QOS normal, ~40 min, both manifests, replicates, --save-elements);
   detectability floor check (4 CPU, QOS dev, ~1 min, afterok).
+
+### Stage P1 result (jobs 47781 / 47782, screening evidence; uniform)
+
+Regression: every field of 47672 identical in 47781. Figure: 20261102_deviation_P1/dose_response_p1.png.
+A-priori families from the code (deviation.json 'apriori_families'): learned r3mm {4, 5, 6, 7, 11, 14}; learned r2mm
+EMPTY (no edge with training p_e >= 0.5 in the secondary population); centroid r3mm {18} (one edge; only target 14 maps
+onto it); centroid r2mm empty.
+Floor check (learned r3mm, family elements): m = 6, q / m = 0.0083; population floor 2 / (n_ref + 1) = 0.004-0.005;
+null floor 1 / (n_null + 1) = 0.003-0.004: the floor no longer binds.
+Pre-registered criteria, segmatch_q25_apriori, learned:
+  (1) PASS: null-referenced thin0.3 0.289 (>= 0.25);
+  (2) PASS: null-referenced stenosis0.3 0.398 (>= 0.30);
+  (3) FAIL: FPR null LOO population 0.087 (> 0.06), null LOO null-referenced 0.047, validation 0 / 0. G0 had projected the
+      population-referenced 0.087 exactly; the null-referenced row alone would be within 0.06.
+segmatch_med_apriori (not primary): (1) PASS 0.277, (2) PASS 0.386, (3) FAIL (population null FPR 0.067; null-referenced
+  0.050; validation 0 / 0). Centroid (family {18} only): segmatch_q25_apriori (1) FAIL 0.084, (2) FAIL 0.072, (3) PASS
+  (0.047 / 0.040 / 0 / 0); segmatch_med_apriori FAIL / FAIL / PASS.
+Sensitivity, learned, segmatch_q25_apriori population / null (full-family segmatch_q25 population / null; baseline 0 / 0):
+thin0.5 0.096 / 0.084 (0.036 / 0.036); thin0.3 0.325 / 0.289 (0.072 / 0.084); removal 0.916 / 0.916 (0.590 / 0.639);
+stenosis0.5 0.084 / 0.096 (0.012 / 0.024); stenosis0.3 0.410 / 0.398 (0.012 / 0.048); displace2 0.084 / 0.072; displace3
+0.193 / 0.193; displace5 0.373 / 0.349 (full 0.024-0.096).
+Per edge (learned, q25 a priori, population / null; p_e): thin0.3 e4 (0.92) 0.44 / 0.39, e5 (0.57) 0.67 / 0.67, e6 (0.77)
+0.12 / 0.18, e7 (0.52) 0.22 / 0.22, e11 (0.62) 0.58 / 0.33, e14 (0.91) 0.11 / 0.11; stenosis0.3 e4 0.78 / 0.72, e5 0.11 / 0,
+e6 0.88 / 1.00, e7 0 / 0, e11 0.25 / 0.17, e14 0.06 / 0.06; removal 0.83-1.00 on every edge.
+Facts: restricting BH to the 6 expected edges lifts every label (thin0.3 x4, stenosis0.3 x8-30, displacement 5 mm x4)
+with validation FPR 0 and null-referenced null FPR 0.047; the population-referenced null FPR (0.087) exceeds 0.06, so the
+pre-registered design FAILS criterion 3. Centroid and the secondary population cannot use this family (1 / 0 edges).
+Hypothesis (from D0 / G0, untested): the population-referenced excess comes from the trained-vs-refitted transform
+mismatch (null queries refitted, reference trained), as for the offset family; the null-referenced p is calibrated
+against refitted queries by construction.
+Forking paths: chosen from G0 on the same 20 validation subjects and 664 copies; screening only. A confirmatory run on
+validation IDs 21-55 with fresh copies (design frozen at 8a4d279, rows pre-registered) has not been run and needs the
+user's confirmation (GPU refits ~26 GPU-h).
