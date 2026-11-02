@@ -220,7 +220,7 @@ def absent_summary(d, val_keys, null_keys, out):
     ax.spines[['top', 'right']].set_visible(False); ax.grid(axis='y', alpha=0.25, lw=0.5)
     ax.legend(fontsize=6, frameon=False, ncol=5, loc='upper center', bbox_to_anchor=(0.5, -0.22))
     ax.set_title(f'Absent-but-expected edges: {len(val_keys)} validation subjects vs null {len(null_keys)}\n(learned, uniform; screening evidence)', fontsize=9)
-    fig.tight_layout(); fig.savefig(out, dpi=130); plt.close(fig)
+    fig.tight_layout(); fig.savefig(out, dpi=130, bbox_inches='tight'); plt.close(fig)
 
 
 def embed(path):
