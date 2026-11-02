@@ -409,6 +409,16 @@ class DetectabilityTests(unittest.TestCase):
         self.assertAlmostEqual(e['thin0.5']['true_change_median'], -1.0)
 
 
+    def test_decision_rules(self):
+        from analysis.deviation.decision_table import classify
+        ph = {'slope': 0.9, 'delta_phantom': -0.7, 'sd': 0.05}
+        self.assertEqual(classify(-0.2, ph, 0.25, 0.24, 0.25, 2.5, 2.9), 'dilution')
+        self.assertEqual(classify(-0.6, ph, 0.25, 0.24, 0.25, 2.5, 2.9), 'between-subject variance')
+        self.assertEqual(classify(-0.6, dict(ph, slope=0.4), 0.25, 0.24, 0.25, 2.5, 2.9), 'resolution limit')
+        self.assertEqual(classify(-0.6, ph, 0.25, 0.1, 0.25, 2.5, 2.9), 'unclear')
+        self.assertTrue(classify(0., None, 0.25, 0.24, 0.25, 0., 2.9).startswith('dilution'))
+
+
 class SegmentDiagnosticsTests(unittest.TestCase):
     """analysis/deviation/segment_diagnostics.py (Step D0)."""
 
