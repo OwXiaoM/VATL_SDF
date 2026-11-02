@@ -15,10 +15,11 @@ import torch
 
 from vatl_sdf.graph_atlas import held_out_rows
 from vatl_sdf.graph_coords import load_graph, voxel_to_world
-from vatl_sdf.perturbation import perpendicular_direction, segment_geometry, select_targets, subject_segments, willis_centre
+from vatl_sdf.perturbation import (copy_label, parse_kinds, perpendicular_direction, segment_geometry, select_targets,
+                                   subject_segments, willis_centre)
 from vatl_sdf.deviation import load_fitted
 
-KINDS = (('remove', 0.), ('thin', 0.), ('displace', 3.), ('displace', 5.))
+KINDS = ('remove', 'thin', 'displace:3', 'displace:5')  # legacy set (copy ids remove0, thin0, displace3, displace5)
 
 
 def main():
@@ -29,7 +30,9 @@ def main():
     p.add_argument('--radius-mm', type=float, default=25.); p.add_argument('--min-p', type=float, default=0.5)
     p.add_argument('--min-c', type=float, default=0.5); p.add_argument('--min-radius-mm', type=float, default=1.5)
     p.add_argument('--min-large-radius-mm', type=float, default=1.2); p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--kinds', nargs='+', default=list(KINDS), help="priority order: remove, thin[:factor], stenosis:factor, displace:mm")
     a = p.parse_args()
+    kinds = parse_kinds(a.kinds)
     checkpoint = torch.load(a.checkpoint, map_location='cpu', weights_only=False)
     config = checkpoint['config']
     with open(Path(a.graph_atlas) / f'population_graph_{a.population}.pkl', 'rb') as stream:
@@ -55,16 +58,18 @@ def main():
             if not s['eligible']:
                 continue
             points = segment_geometry(graph, np.asarray(s['matched_edges']))[0]
-            for kind, magnitude in KINDS:
-                copy_id = f'{row.subject_id}__e{s["population_edge"]}__{kind}{magnitude:g}'
+            for spec in kinds:
+                kind, magnitude, label = spec['kind'], spec['magnitude'], copy_label(spec)
+                copy_id = f'{row.subject_id}__e{s["population_edge"]}__{label}'
                 seed = int.from_bytes(copy_id.encode(), 'little') % (2 ** 32) ^ a.seed
                 copies.append({'copy_id': copy_id, 'subject_id': row.subject_id, 'scan_age': float(row.scan_age), 'sex': row.sex,
                                'source_sdf': row.SDF, 'source_graph': row.Graph, 'population_edge': s['population_edge'],
                                'p_edge': float(pop['edge_probability'][s['population_edge']]), 'matched_edges': s['matched_edges'],
                                'segment_radius_mm': s['segment_radius_mm'], 'kind': kind, 'magnitude': magnitude,
+                               'factor': spec['factor'], 'label': label,
                                'direction': perpendicular_direction(points, seed).tolist() if kind == 'displace' else None})
-    priority = {k: i for i, k in enumerate(KINDS)}
-    copies.sort(key=lambda c: (priority[(c['kind'], c['magnitude'])], c['subject_id'], c['population_edge']))
+    priority = {copy_label(k): i for i, k in enumerate(kinds)}
+    copies.sort(key=lambda c: (priority[c['label']], c['subject_id'], c['population_edge']))
     eligible_subjects = sum(bool(s['eligible_edges']) for s in subjects)
     manifest = {'checkpoint': str(Path(a.checkpoint).resolve()), 'graph_atlas': str(Path(a.graph_atlas).resolve()),
                 'population': a.population, 'settings': vars(a),

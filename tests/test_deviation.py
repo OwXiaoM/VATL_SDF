@@ -354,6 +354,42 @@ class PerturbationTests(unittest.TestCase):
         self.assertEqual(g['radius'][10], 2.); self.assertEqual(g['radius'][20], 2.)  # attachments to the large tube kept
         self.assertLess(sdf[20, 12, 12], -0.5); self.assertGreater(sdf[20, 13, 13], 0.)  # thinned through the small-branch junction
 
+    def test_thin_factor(self):
+        from vatl_sdf.perturbation import perturb
+        tail = [int(k) for k, (a, b) in enumerate(self.graph['edges']) if a >= 21 and b >= 21 and max(a, b) <= 30]
+        default, _ = perturb(self.sdf, self.affine, self.graph, tail, 'thin')
+        half, _ = perturb(self.sdf, self.affine, self.graph, tail, 'thin', factor=0.5)
+        np.testing.assert_array_equal(default, half)                  # legacy copies (no factor) regenerate identically
+        sdf, g = perturb(self.sdf, self.affine, self.graph, tail, 'thin', factor=0.3)
+        self.assertAlmostEqual(float(sdf[32, 12, 12]), -0.6, places=1)
+        self.assertGreater(sdf[32, 13, 12], 0.)
+        np.testing.assert_allclose(g['radius'][22:31], 0.6)
+
+    def test_stenosis(self):
+        from vatl_sdf.perturbation import perturb, stenosis_profile
+        np.testing.assert_allclose(stenosis_profile(np.array([0., 2., 3., 4., 9.]), 0.5), [0.5, 0.5, 0.75, 1., 1.])
+        sdf, g = perturb(self.sdf, self.affine, self.graph, self.edges, 'stenosis', factor=0.5)   # x = 15..25, centre x = 20
+        self.assertAlmostEqual(float(sdf[20, 12, 12]), -1., places=1)   # plateau: radius 1 mm
+        self.assertGreater(sdf[20, 13, 13], 0.)
+        self.assertAlmostEqual(float(sdf[17, 12, 12]), -1.5, places=1)  # taper (d = 3 mm): radius 1.5 mm
+        self.assertAlmostEqual(float(sdf[14, 12, 12]), -2., places=1)   # outside the 8 mm zone: original
+        self.assertTrue((sdf[5:36, 12, 12] < 0).all())                  # lumen continuous
+        np.testing.assert_array_equal(sdf[:9], self.sdf[:9])            # far away unchanged
+        self.assertAlmostEqual(float(g['radius'][15]), 1.); self.assertAlmostEqual(float(g['radius'][12]), 1.5)
+        self.assertAlmostEqual(float(g['radius'][10]), 2.); self.assertEqual(len(g['edges']), len(self.graph['edges']))
+        np.testing.assert_array_equal(g['pos'], self.graph['pos'])
+
+    def test_kinds_and_labels(self):
+        from vatl_sdf.perturbation import copy_label, parse_kinds
+        legacy = parse_kinds(['remove', 'thin', 'displace:3', 'displace:5'])
+        self.assertEqual([copy_label(k) for k in legacy], ['remove0', 'thin0', 'displace3', 'displace5'])  # unchanged ids
+        new = parse_kinds(['thin:0.3', 'stenosis:0.5', 'stenosis:0.3', 'displace:2'])
+        self.assertEqual([copy_label(k) for k in new], ['thin0.3', 'stenosis0.5', 'stenosis0.3', 'displace2'])
+        self.assertEqual(new[0], {'kind': 'thin', 'magnitude': 0., 'factor': 0.3})
+        self.assertEqual(new[3], {'kind': 'displace', 'magnitude': 2., 'factor': None})
+        with self.assertRaises(ValueError):
+            parse_kinds(['bend:2'])
+
     def test_displace(self):
         from vatl_sdf.perturbation import perturb
         tail = [int(k) for k, (a, b) in enumerate(self.graph['edges']) if a >= 21 and b >= 21 and max(a, b) <= 30]  # x = 26..35
@@ -378,6 +414,14 @@ class PerturbationTests(unittest.TestCase):
         expected, g = perturbation.perturb(self.sdf, self.affine, self.graph, self.edges, 'remove')
         np.testing.assert_array_equal(np.asarray(image.dataobj), expected)
         self.assertEqual(len(load_graph('perturb:c0')['edges']), len(g['edges']))
+        second = Path(self.temp.name) / 'm2.json'   # a second manifest (Step C) is added to the first
+        second.write_text(json.dumps({'copies': [{'copy_id': 'c1', 'scan_age': 30., 'sex': 'F', 'source_sdf': str(Path(self.temp.name) / 's.nii.gz'),
+                                                   'source_graph': self.graph_path, 'matched_edges': self.edges, 'kind': 'stenosis',
+                                                   'magnitude': 0., 'factor': 0.5, 'direction': None}]}))
+        perturbation.configure(second, reset=False)
+        expected, _ = perturbation.perturb(self.sdf, self.affine, self.graph, self.edges, 'stenosis', factor=0.5)
+        np.testing.assert_array_equal(np.asarray(sources.load_image('perturb:c1').dataobj), expected)
+        self.assertIsNotNone(sources.load_image('perturb:c0'))
         self.assertTrue(np.allclose(nib.load(Path(self.temp.name) / 's.nii.gz').get_fdata(), self.sdf))  # source untouched
 
     def test_selection(self):
