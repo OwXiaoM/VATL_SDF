@@ -2,7 +2,9 @@
 
 Rows: learned, centroid (uniform weighting). Columns: radius factor (thin, removal = 0), local stenosis factor,
 displacement (mm). Magnitude 'none' = the unperturbed refit of the same (subject, edge) pairs (baseline columns).
-Usage: python analysis/deviation/plot_dose_response.py DEVIATION_DIR [OUTPUT_PNG]
+Series 'default' (old any, Step B, subject level) or 'radius' (radius_absz vs radius_allr, Step E1; population- and
+null-referenced element detection).
+Usage: python analysis/deviation/plot_dose_response.py DEVIATION_DIR [OUTPUT_PNG] [default|radius]
 """
 import json
 import sys
@@ -15,6 +17,8 @@ import matplotlib.pyplot as plt
 PANELS = [('Thinning / removal', 'radius factor', [(1., None), (0.5, 'thin0'), (0.3, 'thin0.3'), (0., 'remove0')]),
           ('Local stenosis (4 mm, tapered)', 'radius factor', [(1., None), (0.5, 'stenosis0.5'), (0.3, 'stenosis0.3')]),
           ('Displacement', 'mm', [(0., None), (2., 'displace2'), (3., 'displace3'), (5., 'displace5')])]
+SERIES_RADIUS = [('population_radius_absz', 'radius_absz (pop.)', '#2a78d6'), ('null_radius_absz', 'radius_absz (null)', '#eb6834'),
+                 ('population_radius_allr', 'radius_allr (pop.)', '#1baf7a'), ('null_radius_allr', 'radius_allr (null)', '#eda100')]
 SERIES = [('population_any', 'element, old families (pop.)', '#2a78d6'),
           ('null_any', 'element, old families (null)', '#eb6834'),
           ('population_any_new', 'element, segment families (pop.)', '#1baf7a'),
@@ -30,6 +34,7 @@ def value(e, key, baseline):
 
 def main():
     run = Path(sys.argv[1]); out = Path(sys.argv[2]) if len(sys.argv) > 2 else run / 'dose_response.png'
+    series = SERIES_RADIUS if len(sys.argv) > 3 and sys.argv[3] == 'radius' else SERIES
     d = json.loads((run / 'deviation.json').read_text())
     fig, axes = plt.subplots(2, 3, figsize=(13, 7.5), sharey=True)
     for i, method in enumerate(('learned', 'centroid')):
@@ -37,7 +42,7 @@ def main():
         any_label = next(iter(groups.values()))
         for j, (title, xlabel, points) in enumerate(PANELS):
             ax = axes[i, j]
-            for key, name, colour in SERIES:
+            for key, name, colour in series:
                 xs = [x for x, _ in points]
                 ys = [value(groups[lab] if lab else any_label, key, lab is None) for _, lab in points]
                 ax.plot(xs, ys, '-o', color=colour, lw=2, ms=6, label=name)
