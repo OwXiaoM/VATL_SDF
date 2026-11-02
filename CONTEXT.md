@@ -769,7 +769,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47162 | Step C manifest: same targets/eligibility, kinds thin:0.3 stenosis:0.5 stenosis:0.3 displace:2 (CPU, QOS dev) | 4 CPU, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/manifest.json | 0 | completed 9 s: 332 copies, same 83 pairs and CoW centre as the first manifest |
 | 47163-47196 | Step C copy refits (34 chunks of 10, set perturbed_c, afterok 47162) | 34 x 1 L40S, QOS normal/dev, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/refit | 0 | completed 3-13 min each |
 | 47197 | Deviation A+B: null 300, 332 old copies, replicates valrep1-3, segment families (afterok 47156-47161) (CPU) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_AB | 0 | completed 30 min; old families identical to 47117 (0 diffs) |
-| 47203 | Deviation C: null 300, both manifests (664 copies), replicates valrep1-3, old + segment families (CPU, QOS normal) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_C | | submitted |
+| 47203 | Deviation C: null 300, both manifests (664 copies), replicates valrep1-3, old + segment families (CPU, QOS normal) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_C | 0 | completed 34 min; old copies identical to 47197 (0 diffs) |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -1918,3 +1918,40 @@ Hypotheses (untested):
   shift); centroid (no such mismatch) and null-referenced (refitted null) versions are calibrated.
 - Extended min-p validation excess (3-4/20 vs 0.043 on the null): the new segment scores differ between null
   and validation fits; segrad has the largest refit variability (ratio 0.29).
+
+### Step C result: dose-response (job 47203, screening evidence; uniform, r3mm, 83 copies per point)
+
+Regression: the 332 old copies and all FPRs are identical to job 47197. Figure:
+sdf_only/analysis/20261102_deviation_C/dose_response.png (analysis/deviation/plot_dose_response.py).
+Detection per copy. Learned: element old any pop / null, subject primary / extended; centroid: element old any pop / null,
+subject primary. Baseline = unperturbed refit of the same pairs; new segment families (any_new) = 0 everywhere for learned,
+0.012 (= baseline) for centroid. Present after = target large-vessel edge present after perturbation (learned).
+| perturbation | learned pop | learned null | learned subj | learned ext | present after | centroid pop | centroid null | centroid subj |
+|---|---|---|---|---|---|---|---|---|
+| none (baseline) | 0.024 | 0.048 | 0.072 | 0.133 | - | 0 | 0 | 0 |
+| thin 0.5 | 0.036 | 0.012 | 0.120 | 0.241 | 0.02 | 0.024 | 0.024 | 0.012 |
+| thin 0.3 | 0.060 | 0.024 | 0.133 | 0.253 | 0.02 | 0.024 | 0.024 | 0.012 |
+| remove | 0.434 | 0.482 | 0.229 | 0.301 | 0.02 | 0.277 | 0.301 | 0.169 |
+| stenosis 0.5 | 0.181 | 0.108 | 0.108 | 0.205 | 0.57 | 0.169 | 0.145 | 0.012 |
+| stenosis 0.3 | 0.205 | 0.133 | 0.133 | 0.193 | 0.46 | 0.169 | 0.145 | 0.024 |
+| displace 2 mm | 0.084 | 0.060 | 0.120 | 0.217 | 0.72 | 0.072 | 0.060 | 0.036 |
+| displace 3 mm | 0.048 | 0.036 | 0.120 | 0.253 | 0.55 | 0.060 | 0.072 | 0.012 |
+| displace 5 mm | 0.048 | 0.012 | 0.096 | 0.181 | 0.34 | 0.036 | 0.048 | 0.000 |
+Facts:
+- Element discoveries for removal, stenosis and thinning come from the node-radius family (radius_absz: learned
+  removal 0.434, stenosis 0.157 / 0.181, thin 0.3 0.036); connectivity 0.012, edge presence 0.
+- Thinning is flat from factor 0.5 to 0.3 (learned pop 0.036 -> 0.060; centroid identical), then jumps at removal
+  (0.43). Thinning at 0.5 or 0.3 already removes the large-vessel edge (present after 0.02, as removal).
+- A 4 mm local stenosis is detected 3-5x more often than whole-segment thinning to the same factor (learned pop 0.18
+  vs 0.04 at 0.5; 0.21 vs 0.06 at 0.3), although thinning narrows the whole segment; 0.5 -> 0.3 adds little.
+  Per edge (learned pop, stenosis 0.3): e4 0.39, e6 0.47, e7 0.11, e14 0.06, e5 0, e11 0.
+- Displacement: 2 mm is detected slightly more than 3 or 5 mm (learned pop 0.084, 0.048, 0.048), all near baseline.
+- Subject level, learned: every perturbation 0.10-0.13 except removal 0.23 (baseline 0.072); extended min-p
+  0.18-0.30 with baseline 0.133. Centroid subject level detects only removal (0.17). Decoder: 0.012-0.024 for all
+  (baseline 0.024).
+Hypotheses (untested):
+- Thinning is missed by the radius family because nodes whose graph radius falls to the floor are excluded from
+  radius_absz (floor rule), and presence p-values cannot reach significance at p_edge 0.52-0.92; stenosis keeps
+  the segment ends at normal radius, so the narrowed interior nodes stay above the floor and are tested.
+- The reverse displacement trend: at 2 mm the mapped large-vessel edge is still matched (present 0.72) but its
+  node radii are mis-measured, while at 3-5 mm the edge is more often unmatched and drops out of the radius test.
