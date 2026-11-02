@@ -776,8 +776,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47346 | E1 deviation: as 47315 + radius_allr family, any_allr, extended --save-elements dump (geometry for E2) (CPU, QOS normal) | 16 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1 | 0 | completed 35 min; all previous fields identical to 47315 |
 | 47347 | E1 node diagnostics (segment_diagnostics.py, nodes_allr) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1/d0_report.json | 0 | completed 6 s |
 | 47348 | E2 figures (plot_deviations.py) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_figures | 0 | completed 24 s; superseded by 47400 (views spanned the whole FOV; mask MIP included out-of-FOV extrapolation) |
-| 47399 | E2 data: as 47346 with the dump's mask MIPs restricted to the subject FOV (statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_E2data | | submitted |
-| 47400 | E2 figures v2 (cropped views, distinct colours) (afterok 47399) (CPU, QOS dev) | 4 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_figures_v2 | | submitted (dependency) |
+| 47399 | E2 data: as 47346 with the dump's mask MIPs restricted to the subject FOV (statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_E2data | 0 | completed 32 min; FPR and sensitivity identical to 47346 |
+| 47400 | E2 figures v2 (cropped views, distinct colours) (afterok 47399) (CPU, QOS dev) | 4 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_figures_v2 | 0 | completed 26 s; superseded by 47620 (summary legend clipped) |
+| 47620 | E2 figures v3 (summary legend kept inside the figure) from 20261102_deviation_E2data (CPU, QOS dev) | 4 CPU, frozen 4e63a64 | sdf_only/analysis/20261102_deviation_figures_v3 | 0 | completed 25 s |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2194,3 +2195,23 @@ Forking paths: Steps A-E all used the same 664 copies (same 83 subject-edge pair
 Proposal (not run): a confirmatory run with the design frozen at commit 9148e0a on held-out data: the remaining 13
 of the first 33 validation IDs (YAML order) and freshly seeded copies (new manifest seed) of their eligible pairs,
 refitted with the same budget; report only the pre-registered rows (old any, radius_absz, radius_allr, subject min-p).
+
+### Step E2 result: deviation maps of the 20 validation subjects (job 47620; data 47399; screening evidence)
+
+Output: sdf_only/analysis/20261102_deviation_figures_v3/ (index.html self-contained, 20 subject_*.png, montage.png,
+absent_expected_summary.png, example_<label>.png for IXI403-Guys-0965 = first validation subject with copies of all
+8 labels, first copy per label). Learned, uniform, r3mm_tau0.1; views cropped to the population graph +/- 15 mm;
+vessel-mask MIP restricted to the subject's field of view (the first rendering, 47348, included the label's
+nearest-neighbour extrapolation outside the FOV and spanned the whole FOV; superseded).
+Facts read from the maps / dump:
+- Only 6 of the 16 primary population edges have training p_e >= 0.5 (the 6 perturbation targets); the long lateral
+  edges have p_e < 0.5 and appear as "present, unexpected" in most subjects.
+- Absent-but-expected edges: 34 in 20 validation subjects (0-4 per subject, mean 1.7; null 300 mean 2.0):
+  radius_threshold 13, graph_defect 13, displaced 3, absent 5 (null per subject 0.75 / 0.93 / 0.15 / 0.20). Per edge
+  the validation rates are at or below the null-300 rate except e4 (0.10 vs 0.12, similar).
+- BH discoveries (population-referenced) in the validation subjects: conn_graph 1 subject (IXI118), none for edge
+  presence, conn_mask, radius_absz or radius_allr. Subject-level family min-p flags IXI426 (p 0.047) without any element
+  discovery.
+- Examples: thin0.3 on IXI403 edge 4 turns the edge into absent-but-expected with class radius_threshold (all-radius
+  centreline still there, large-vessel centreline gone), no BH discovery; removal gives graph_defect / absent plus
+  radius_absz and radius_allr discoveries at nodes 3, 4 (and 14) and a conn_mask discovery at edge 5.
