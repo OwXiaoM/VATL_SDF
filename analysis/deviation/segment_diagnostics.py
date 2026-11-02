@@ -12,7 +12,9 @@ Report (DEVIATION_DIR/d0_report.json):
   nodes     per copy (thin / stenosis / removal) and its unperturbed validation baseline: mapped target nodes tested
             by radius_absz (finite population p) vs floor-excluded (graph radius <= 0.801 mm) vs absent (no
             large-vessel centreline within r) vs untested (finite radius, < 3 population subjects);
-  nodes_allr the same for radius_allr (Step E1; absent = no all-radius graph point within r; no floor rule).
+  nodes_allr the same for radius_allr (Step E1; absent = no all-radius graph point within r; no floor rule);
+  segments_match per copy's mapped target edges: matched (finite F1 value) vs unmatched, copy vs baseline, and the
+            change of segrad_match_med / q25 on edges matched in both (Step F1).
 Usage: python analysis/deviation/segment_diagnostics.py DEVIATION_DIR
 """
 import json
@@ -97,6 +99,28 @@ def node_report(copies, row_of, radius, floor, pop_p):
     return nodes
 
 
+def segment_report(copies, row_of, med, q25):
+    """Per label: mapped target edges matched / unmatched (copy vs baseline) and the change of the matched-segment
+    median and 25th percentile on edges matched in both (Step F1)."""
+    out = {}
+    for label in NODE_LABELS:
+        counts = {'copy': {'matched': 0, 'unmatched': 0}, 'baseline': {'matched': 0, 'unmatched': 0}}
+        dmed, dq = [], []
+        sel = [c for c in copies if c['label'] == label]
+        for c in sel:
+            i, b = row_of[f"perturbed/{c['copy_id']}"], row_of[f"validation/{c['subject_id']}"]
+            ee = c['mapped_edges']
+            for name, j in (('copy', i), ('baseline', b)):
+                ok = np.isfinite(med[j][ee])
+                counts[name]['matched'] += int(ok.sum()); counts[name]['unmatched'] += int((~ok).sum())
+            both = np.isfinite(med[i][ee]) & np.isfinite(med[b][ee])
+            dmed += list(med[i][ee][both] - med[b][ee][both]); dq += list(q25[i][ee][both] - q25[b][ee][both])
+        out[label] = {'copies': len(sel), 'edge_counts': counts,
+                      'median_change_mm': quartiles(np.array(dmed)) if dmed else None,
+                      'q25_change_mm': quartiles(np.array(dq)) if dq else None}
+    return out
+
+
 def main():
     run = Path(sys.argv[1])
     d = json.loads((run / 'deviation.json').read_text())
@@ -104,7 +128,7 @@ def main():
     pop_key = f"r{d['settings']['radii_mm'][0]:g}mm_tau{d['settings']['tau']:g}"
     targets = {t['population_edge']: t['p_edge'] for t in d['perturbations']['targets']}
     report = {'tolerances': {'seg_radius_mm': SEG_TOL_MM, 'coverage': COVER_TOL}, 'population': pop_key, 'alpha': alpha, 'q': q,
-              'floor': {}, 'offset': {}, 'nodes': {}, 'nodes_allr': {}}
+              'floor': {}, 'offset': {}, 'nodes': {}, 'nodes_allr': {}, 'segments_match': {}}
     for method in ('learned', 'centroid'):
         z = np.load(run / f'elements_{method}.npz', allow_pickle=False)
         keys = list(z['query_keys']); sets = z['query_sets']; subjects = z['query_subjects']
@@ -159,6 +183,8 @@ def main():
         if f'{pop_key}/query_node_radius_allr' in z:
             report['nodes_allr'][method] = node_report(copies, row_of, g('query_node_radius_allr'),
                                                        np.zeros_like(g('query_floor')), g('query_pop_p_radius_allr'))
+        if f'{pop_key}/query_segrad_match_med' in z:
+            report['segments_match'][method] = segment_report(copies, row_of, g('query_segrad_match_med'), g('query_segrad_match_q25'))
     (run / 'd0_report.json').write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 

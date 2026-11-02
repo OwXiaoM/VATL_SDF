@@ -47,6 +47,14 @@ All-radius node radius (Step E1, added 2026-11-02; one factor vs radius_absz = p
 population node = median -SDF (trilinear, native, unclipped) over ALL-radius graph centreline points within r of the
 node (NaN if none: untested); no floor rule (it never fires for radius_absz, whose points are large-vessel only);
 reference, p-values and BH as radius_absz. Union any_allr = the four original families + radius_allr.
+Matched-segment interior radius (Step F1, added 2026-11-02; one factor vs seg_radius = measured on the subject's own
+matched segment): subject graph edges (all radii) with >= 50% of their 0.4 mm samples within r of the population edge
+path are matched; interior = matched samples >= min(3 mm, |a - b| / 4) from both population end nodes (fallback: the
+farthest); -SDF (trilinear, native, unclipped) at those samples, median (segmatch_med) and 25th percentile
+(segmatch_q25); no match -> NaN (untested; reference = subjects with a match); two-sided radius tail / |robust z|.
+Threshold-free presence (Step F2): presence3 = large (large-vessel presence) / small (not large, all-radius coverage >=
+edge_cover) / absent; population p = sum of smoothed category probabilities <= that of the observed category; null
+score -log pi_observed. Union any_f = segmatch_med, segmatch_q25, presence3.
 Replicate refits (--replicate-sets) and perturbed copies are scored as extra queries against the same null.
 """
 import argparse
@@ -182,9 +190,49 @@ def interior_samples(path, a, b, margin_mm=3.0):
     return idx if len(idx) else np.array([int(np.argmax(d))])
 
 
-def segment_statistics(sdf, sdf_affine, centre, A, t, lines, all_lines, pop, offset_cap_factor=4.):
+SEGMENT_STATS = ('seg_radius', 'offset', 'coverage', 'node_radius_allr', 'segrad_match_med', 'segrad_match_q25', 'coverage_all', 'presence3')
+MATCH_FRACTION = 0.5   # F1: share of a subject edge's samples within r of the population path
+
+
+def matched_edges(points, eid, path, r, fraction=MATCH_FRACTION):
+    """Subject graph edges (ids in eid) with >= fraction of their samples (template mm) within r of the path."""
+    if not len(points):
+        return np.zeros(0, int)
+    near = cKDTree(path).query(points, distance_upper_bound=r)[0] <= r
+    counts = np.bincount(eid); hits = np.bincount(eid, weights=near, minlength=len(counts))
+    return np.flatnonzero((counts > 0) & (hits >= fraction * counts))
+
+
+def matched_interior(points, eid, path, a, b, r, margin_mm=3.0):
+    """Sample indices of the matched edges' interior (>= min(margin, |a - b| / 4) from both end nodes; fallback the
+    farthest matched sample) and the matched edge ids."""
+    match = matched_edges(points, eid, path, r)
+    idx = np.flatnonzero(np.isin(eid, match)) if len(match) else np.zeros(0, int)
+    if not len(idx):
+        return idx, match
+    m = min(margin_mm, np.linalg.norm(np.asarray(a) - np.asarray(b)) / 4.)
+    d = np.minimum(np.linalg.norm(points[idx] - a, axis=1), np.linalg.norm(points[idx] - b, axis=1))
+    keep = idx[d >= m - 1e-9]
+    return (keep if len(keep) else idx[[int(np.argmax(d))]]), match
+
+
+def smoothed_categories(categories, w, k=3):
+    """(k, edges) smoothed category probabilities from (subjects, edges) integer categories, one pseudo-subject."""
+    c0 = w.sum() / ess(w)
+    return np.array([(w @ (categories == c) + c0 / k) / (w.sum() + c0) for c in range(k)])
+
+
+def categorical_p(pi, observed):
+    """Population p of an observed category per edge: total probability of categories no more likely than it."""
+    observed = np.asarray(observed, int)
+    po = pi[observed, np.arange(pi.shape[1])]
+    return np.minimum(1., (pi * (pi <= po[None] + 1e-12)).sum(0))
+
+
+def segment_statistics(sdf, sdf_affine, centre, A, t, lines, all_lines, pop, offset_cap_factor=4., all_eid=None):
     """Per population edge: seg_radius, offset and coverage (module docstring); template coordinates of the subject's
-    large-vessel (lines) and all-radius (all_lines) centrelines mapped by (A, t); native = (x - t) A^-T + centre."""
+    large-vessel (lines) and all-radius (all_lines) centrelines mapped by (A, t); native = (x - t) A^-T + centre.
+    all_eid: graph edge id of each all_lines sample (F1 matching; None -> F1 values NaN)."""
     r = pop['radius_mm']; ne = len(pop['edges'])
     A = np.asarray(A, float); t = np.asarray(t, float)
     native_all = (np.asarray(all_lines) - t) @ np.linalg.inv(A).T + centre if len(all_lines) else np.zeros((0, 3))
@@ -194,7 +242,9 @@ def segment_statistics(sdf, sdf_affine, centre, A, t, lines, all_lines, pop, off
     all_tree = cKDTree(all_lines) if len(all_lines) else None
     cap = offset_cap_factor * r
     out = {'seg_radius': np.full(ne, np.nan), 'offset': np.full(ne, np.nan), 'coverage': np.full(ne, np.nan),
-           'node_radius_allr': np.full(len(pop['nodes_mm']), np.nan)}
+           'node_radius_allr': np.full(len(pop['nodes_mm']), np.nan), 'segrad_match_med': np.full(ne, np.nan),
+           'segrad_match_q25': np.full(ne, np.nan), 'coverage_all': np.zeros(ne), 'presence3': np.zeros(ne)}
+    cover = pop.get('edge_cover', 0.5)
     if all_tree is not None and len(pop['nodes_mm']):   # E1: all-radius node radius, unclipped -SDF
         for k, near in enumerate(all_tree.query_ball_point(np.asarray(pop['nodes_mm'], float), r)):
             if near:
@@ -211,6 +261,14 @@ def segment_statistics(sdf, sdf_affine, centre, A, t, lines, all_lines, pop, off
         out['offset'][k] = float(np.median(np.minimum(d, cap)))
         d = large_tree.query(path, distance_upper_bound=r)[0] if large_tree is not None else np.full(len(path), np.inf)
         out['coverage'][k] = float((d <= r).mean())
+        if all_tree is not None:   # F2: all-radius coverage and the 3-category presence
+            out['coverage_all'][k] = float((all_tree.query(path, distance_upper_bound=r)[0] <= r).mean())
+        out['presence3'][k] = 2. if out['coverage'][k] >= cover else (1. if out['coverage_all'][k] >= cover else 0.)
+        if all_eid is not None and len(all_lines):   # F1: interior of the matched subject segment
+            keep, _ = matched_interior(np.asarray(all_lines), np.asarray(all_eid), path, pop['nodes_mm'][a], pop['nodes_mm'][b], r)
+            if len(keep):
+                out['segrad_match_med'][k] = float(np.median(raw_r[keep]))
+                out['segrad_match_q25'][k] = float(np.quantile(raw_r[keep], 0.25))
     return out
 
 
@@ -222,7 +280,11 @@ def segment_worker(args):
     sdf = np.asarray(image.dataobj, dtype=np.float32)
     sdf = sdf[..., 0] if sdf.ndim == 4 else sdf
     centre = voxel_to_world(image.affine, np.asarray(sdf.shape, float) / 2.)
-    return {key: segment_statistics(sdf, image.affine, centre, m['A'], m['t'], m['lines'], m['all_lines'], pop)
+    graph = load_graph(row['Graph'])
+    eid = edge_samples(graph['pos'], graph['edges'], 0.4)[1] if len(graph['edges']) else np.zeros(0, int)
+    if len(eid) != len(m['all_lines']):
+        raise ValueError(f"{row['subject_id']}: all-radius samples and edge ids differ")
+    return {key: segment_statistics(sdf, image.affine, centre, m['A'], m['t'], m['lines'], m['all_lines'], pop, all_eid=eid)
             for key, pop in STATE['populations'][method].items()}
 
 
@@ -389,6 +451,13 @@ def score_query(task):
             dev_allr = radius_deviation(seg['node_radius_allr'], seg_tr['node_radius_allr'], w)
             elements[pop_key].update({'radius_allr_absz': np.abs(dev_allr[:, 1]), 'radius_allr_z': dev_allr[:, 1],
                                       'pop_p_radius_allr': dev_allr[:, 3]})
+            for name, stat in (('segmatch_med', 'segrad_match_med'), ('segmatch_q25', 'segrad_match_q25')):   # F1
+                dv = radius_deviation(seg[stat], seg_tr[stat], w)
+                elements[pop_key].update({f'{name}_absz': np.abs(dv[:, 1]), f'{name}_z': dv[:, 1], f'pop_p_{name}': dv[:, 3]})
+            cats = seg['presence3'].astype(int)                                                                       # F2
+            pi = smoothed_categories(seg_tr['presence3'].astype(int), w)
+            elements[pop_key].update({'presence3': cats, 'presence3_surprise': -np.log(pi[cats, np.arange(len(cats))]),
+                                      'pop_p_presence3': categorical_p(pi, cats)})
             cond = conditional_segment_p(seg['seg_radius'], seg_tr['seg_radius'], seg['coverage'], seg_tr['coverage'], Ytr.astype(bool), yq, w)
             elements[pop_key].update(cond)
             for name, pp in (('segradcond', cond['pop_p_seg_radius_cond']), ('coveragecond', cond['pop_p_coverage_cond'])):
@@ -485,20 +554,23 @@ COND_FAMILIES = ('seg_radius_cond', 'coverage_cond')                            
 CONDPRESENT_FAMILIES = ('seg_radius_condpresent', 'coverage_condpresent')        # 'any_new_condpresent'
 ALLR_FAMILIES = ('radius_allr',)                                                 # node family (Step E1)
 NODE_FAMILIES = ('radius_absz',) + ALLR_FAMILIES
-ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + ALLR_FAMILIES
+F_FAMILIES = ('segmatch_med', 'segmatch_q25', 'presence3')                       # edge families (Steps F1, F2)
+ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + ALLR_FAMILIES + F_FAMILIES
 FAMILY_GROUPS = (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ELEMENT_FAMILIES + NEW_FAMILIES),
                  ('any_new_cond', COND_FAMILIES), ('any_new_condpresent', CONDPRESENT_FAMILIES),
-                 ('any_allr', ELEMENT_FAMILIES + ALLR_FAMILIES))
+                 ('any_allr', ELEMENT_FAMILIES + ALLR_FAMILIES), ('any_f', F_FAMILIES))
 NULL_SCORE = {'seg_radius': 'seg_radius_absz', 'offset': 'offset', 'coverage': 'coverage_deficit',
               'seg_radius_cond': 'seg_radius_cond_absz', 'coverage_cond': 'coverage_cond_deficit',
               'seg_radius_condpresent': 'seg_radius_condpresent_absz', 'coverage_condpresent': 'coverage_condpresent_deficit',
-              'radius_allr': 'radius_allr_absz'}
+              'radius_allr': 'radius_allr_absz', 'segmatch_med': 'segmatch_med_absz', 'segmatch_q25': 'segmatch_q25_absz',
+              'presence3': 'presence3_surprise'}
 NULL_CONDITIONED = set(COND_FAMILIES + CONDPRESENT_FAMILIES)  # null reference: null queries with the edge present
 POPULATION_P = {'edge_surprise': 'pop_p_edge', 'conn_graph': 'pop_p_conn_graph', 'conn_mask': 'pop_p_conn_mask',
                 'radius_absz': 'pop_p_radius', 'seg_radius': 'pop_p_seg_radius', 'offset': 'pop_p_offset',
                 'coverage': 'pop_p_coverage', 'seg_radius_cond': 'pop_p_seg_radius_cond', 'coverage_cond': 'pop_p_coverage_cond',
                 'seg_radius_condpresent': 'pop_p_seg_radius_condpresent', 'coverage_condpresent': 'pop_p_coverage_condpresent',
-                'radius_allr': 'pop_p_radius_allr'}
+                'radius_allr': 'pop_p_radius_allr', 'segmatch_med': 'pop_p_segmatch_med', 'segmatch_q25': 'pop_p_segmatch_q25',
+                'presence3': 'pop_p_presence3'}
 
 
 def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
@@ -790,7 +862,7 @@ def main():
     with Pool(a.workers) as pool:
         for m in graph_methods:
             res = pool.map(segment_worker, [(row, {f: train_prep[i]['methods'][m][f] for f in seg_fields}, m) for i, row in enumerate(rows_train)])
-            train_seg[m] = {key: {stat: np.array([r[key][stat] for r in res]) for stat in ('seg_radius', 'offset', 'coverage', 'node_radius_allr')}
+            train_seg[m] = {key: {stat: np.array([r[key][stat] for r in res]) for stat in SEGMENT_STATS}
                             for key in populations[m]}
             keys = list(queries)
             res = pool.map(segment_worker, [(queries[k]['row'], {f: queries[k]['methods'][m][f] for f in seg_fields}, m) for k in keys])
@@ -883,9 +955,10 @@ def main():
 
 
 SAVED_ELEMENTS = ('seg_radius', 'offset', 'coverage', 'floor', 'pop_p_radius', 'pop_p_seg_radius', 'pop_p_offset', 'pop_p_coverage',
-                  'pop_p_seg_radius_cond', 'pop_p_coverage_cond', 'pop_p_radius_allr', 'radius_z', 'radius_allr_z', 'edge_p')
+                  'pop_p_seg_radius_cond', 'pop_p_coverage_cond', 'pop_p_radius_allr', 'radius_z', 'radius_allr_z', 'edge_p',
+                  'pop_p_segmatch_med', 'pop_p_segmatch_q25', 'pop_p_presence3', 'presence3', 'segmatch_med_z')
 DEFECT_CLASSES = ('radius_threshold', 'graph_defect', 'displaced', 'absent')     # query_defects codes 0-3, -1 = none
-REJECT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz', 'radius_allr')
+REJECT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz', 'radius_allr', 'segmatch_med', 'segmatch_q25', 'presence3')
 
 
 def ragged(arrays):
@@ -910,7 +983,7 @@ def save_elements(path, method, train_ids, keys, queries, results, pv=None, geom
         arrays[f'{pop_key}/pop_paths'], arrays[f'{pop_key}/pop_path_offsets'] = ragged(pop['edge_points_mm'])
         arrays[f'{pop_key}/radius_mm'] = np.array(pop['radius_mm'])
         seg = STATE['train_segments'][method][pop_key]
-        for stat in ('seg_radius', 'offset', 'coverage', 'node_radius_allr'):
+        for stat in SEGMENT_STATS:
             arrays[f'{pop_key}/train_{stat}'] = seg[stat]
         arrays[f'{pop_key}/train_presence'] = STATE['presence'][method][pop_key]
         arrays[f'{pop_key}/train_node_radius'] = np.array([r['populations'][pop_key]['node_radius'] for r in STATE['train_attributes'][method]])
@@ -919,7 +992,8 @@ def save_elements(path, method, train_ids, keys, queries, results, pv=None, geom
             arrays[f'{pop_key}/query_{name}'] = np.array([np.asarray(e[name], float) for e in el])
         arrays[f'{pop_key}/query_presence'] = np.array([e['edge_present'] for e in el], bool)
         arrays[f'{pop_key}/query_node_radius'] = np.array([STATE['attributes'][method][k]['populations'][pop_key]['node_radius'] for k in keys])
-        arrays[f'{pop_key}/query_node_radius_allr'] = np.array([STATE['segments'][method][k][pop_key]['node_radius_allr'] for k in keys])
+        for stat in ('node_radius_allr', 'segrad_match_med', 'segrad_match_q25', 'coverage_all'):
+            arrays[f'{pop_key}/query_{stat}'] = np.array([STATE['segments'][method][k][pop_key][stat] for k in keys])
         defects = np.full((len(keys), len(pop['edges'])), -1, np.int8)
         for i, e in enumerate(el):
             if 'defects' in e:
@@ -990,6 +1064,7 @@ def element_flags(fam, edges, nodes, reject_key):
     out['any_new_cond'] = any(out[f] for f in COND_FAMILIES)
     out['any_new_condpresent'] = any(out[f] for f in CONDPRESENT_FAMILIES)
     out['any_allr'] = any(out[f] for f in ELEMENT_FAMILIES + ALLR_FAMILIES)
+    out['any_f'] = any(out[f] for f in F_FAMILIES)
     return out
 
 
@@ -1039,6 +1114,7 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
             row.update(mapped_edges=edges, mapped_nodes=nodes)
             el = results[(k, method, wname)][1][pop_key]
             row['target_present_after'] = bool(el['edge_present'][edges].all()) if edges else None
+            row['target_matched_after'] = bool(np.isfinite(el['pop_p_segmatch_med'][edges]).all()) if edges else None
             for name in ('seg_radius', 'offset', 'coverage'):
                 row[f'target_{name}'] = float(np.nanmean(el[name][edges])) if edges else None
                 row[f'baseline_target_{name}'] = float(np.nanmean(results[(base, method, wname)][1][pop_key][name][edges])) if edges else None
@@ -1074,8 +1150,8 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
             entry['target_present_after'] = float(g.target_present_after.dropna().mean()) if g.target_present_after.notna().any() else None
             entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]),
                                           **{f'{ref}_{f}': float(h[f'{ref}_{f}'].mean()) for ref in ('population', 'null')
-                                             for f in ('any', 'any_new', 'any_all', 'any_new_cond', 'any_new_condpresent', 'any_allr')
-                                             + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + NODE_FAMILIES},
+                                             for f in ('any', 'any_new', 'any_all', 'any_new_cond', 'any_new_condpresent', 'any_allr', 'any_f')
+                                             + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + NODE_FAMILIES + F_FAMILIES},
                                           'subject': float(h.subject_detected.mean()), 'subject_ext': float(h.subject_detected_ext.mean()),
                                           'subject_cond': float(h.subject_detected_cond.mean())}
                                  for e, h in g.groupby('population_edge')}

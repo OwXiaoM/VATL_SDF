@@ -273,6 +273,9 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         np.testing.assert_array_equal(pres.astype(bool), cov >= 0.5)
         self.assertEqual(dump['r3mm_tau0.1/query_node_radius_allr'].shape, dump['r3mm_tau0.1/query_node_radius'].shape[:2])
         self.assertEqual(dump['r3mm_tau0.1/train_node_radius_allr'].shape[0], n_train)
+        for name in ('query_segrad_match_med', 'query_presence3', 'query_pop_p_segmatch_med'):
+            self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
+        self.assertEqual(dump['r3mm_tau0.1/train_segrad_match_q25'].shape[0], n_train)
         for name in ('query_edge_p', 'query_defects', 'query_radius_z', 'query_radius_allr_z', 'query_pop_p_radius_allr',
                      'query_reject_population_radius_allr', 'query_reject_radius_absz', 'query_reject_population_edge_surprise'):
             self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
@@ -292,6 +295,13 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         self.assertIn('all_edges', d0['offset']['centroid'])
         self.assertAlmostEqual(d0['offset']['centroid']['all_edges']['median_of_edge_median_shift'], 0.)   # centroid: no refit
         self.assertEqual(set(d0['nodes_allr']['learned']['remove0']['node_counts']), {'copy', 'baseline'})   # E1 node diagnostic
+        self.assertEqual(set(d0['segments_match']['learned']['remove0']['edge_counts']), {'copy', 'baseline'})   # F segment diagnostic
+        from analysis.deviation import segment_zero_diagnostics
+        with mock.patch.object(sys, 'argv', ['x', str(out), '--checkpoint', str(self.checkpoint_path), '--output', str(d / 'f0.json'),
+                                             '--workers', '1', '--max-seg-radius', '1e9', '--any-presence']):
+            segment_zero_diagnostics.main()
+        f0 = json.loads((d / 'f0.json').read_text())
+        self.assertTrue(f0['targets']); self.assertIn('classes', next(iter(f0['targets'].values())))
         from analysis.deviation import plot_deviations
         figs = d / 'figures'
         with mock.patch.object(sys, 'argv', ['x', str(out), str(figs)]):
@@ -327,6 +337,10 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         for key in ('population_radius_allr', 'null_radius_allr', 'population_any_allr', 'baseline_population_radius_allr'):
             self.assertIn(key, row)
         self.assertIn('population_radius_allr', sens['by_perturbation']['remove0']['per_edge'][str(row['population_edge'])])
+        for fam in ('segmatch_med', 'segmatch_q25', 'presence3', 'any_f'):
+            self.assertIn(fam, val['elements_bh_population']['r3mm_tau0.1']); self.assertIn(fam, val['elements_bh']['r3mm_tau0.1'])
+        for key in ('population_segmatch_med', 'null_segmatch_q25', 'population_presence3', 'population_any_f', 'target_matched_after'):
+            self.assertIn(key, row)
         rep = summary['replicates']['learned/uniform']
         self.assertEqual(rep['valrep1']['fpr']['subjects'], 2)
         self.assertEqual(len(rep['transform_shift_mm']['valrep1']), 2)
@@ -442,23 +456,34 @@ class DeviationStatisticsTests(unittest.TestCase):
 
         def stats(s, gr):
             large = edge_samples(gr['pos'], gr['edges'][(gr['radius'][gr['edges']] >= 1.2).all(1)], 0.4)[0]
-            alll = edge_samples(gr['pos'], gr['edges'], 0.4)[0]
-            return segment_statistics(s, affine, centre, np.eye(3), np.zeros(3), large, alll, pop)
+            alll, eid = edge_samples(gr['pos'], gr['edges'], 0.4)
+            return segment_statistics(s, affine, centre, np.eye(3), np.zeros(3), large, alll, pop, all_eid=eid)
         base = stats(sdf, graph)
         self.assertAlmostEqual(base['seg_radius'][0], 2., places=1)
         self.assertAlmostEqual(base['offset'][0], 0., places=6); self.assertAlmostEqual(base['coverage'][0], 1.)
         self.assertAlmostEqual(base['node_radius_allr'][2], 2., places=1)   # all-radius node radius (E1)
         self.assertTrue(np.isnan(base['node_radius_allr'][3]))               # no graph point within r -> NaN
+        self.assertAlmostEqual(base['segrad_match_med'][0], 2., places=1)    # F1: own matched segment interior
+        self.assertEqual(base['presence3'][0], 2)                            # F2: large
         edges = [int(k) for k, (a, b) in enumerate(graph['edges']) if 10 <= a <= 20 and 10 <= b <= 20]
         thin = stats(*perturb(sdf, affine, graph, edges, 'thin'))
         self.assertAlmostEqual(thin['seg_radius'][0], 1., places=1)
         self.assertAlmostEqual(thin['node_radius_allr'][2], 1., places=1)   # thinned points still contribute
+        self.assertAlmostEqual(thin['segrad_match_med'][0], 1., places=1)
+        self.assertLessEqual(thin['segrad_match_q25'][0], thin['segrad_match_med'][0])
+        self.assertEqual(thin['presence3'][0], 2 if thin['coverage'][0] >= 0.5 else 1)   # short tube: large lines reach in from both ends
+        alll, eid = edge_samples(graph['pos'], graph['edges'], 0.4)
+        small = segment_statistics(sdf, affine, centre, np.eye(3), np.zeros(3), np.zeros((0, 3)), alll, pop, all_eid=eid)
+        self.assertEqual(small['presence3'][0], 1)                           # all-radius covered, no large-vessel line: small
         self.assertAlmostEqual(thin['offset'][0], 0., places=6)            # all-radius centreline unmoved
         self.assertLess(thin['coverage'][0], 0.8)                          # radius 1 < 1.2: interior off the large-vessel centreline
         moved = stats(*perturb(sdf, affine, graph, edges, 'displace', 3., [0., 0., 1.]))
         self.assertGreater(moved['offset'][0], 2.)
         gone = stats(*perturb(sdf, affine, graph, edges, 'remove'))
         self.assertLess(gone['node_radius_allr'][2], 1.)                     # unclipped: remaining points outside the vessel
+        expected = 2 if gone['coverage'][0] >= 0.5 else (1 if gone['coverage_all'][0] >= 0.5 else 0)
+        self.assertEqual(gone['presence3'][0], expected)                     # category rule (short tube: ends still covered)
+        self.assertFalse(gone['segrad_match_med'][0] > 1.)                   # NaN (no match) or side-branch root outside the vessel
         self.assertLess(gone['seg_radius'][0], 0.5); self.assertLess(gone['coverage'][0], 0.8)   # (small branch root keeps offset low)
 
     def test_conditional_segment_p(self):
@@ -492,6 +517,38 @@ class DeviationStatisticsTests(unittest.TestCase):
         mips = masked_mips(np.packbits(y.ravel()), np.packbits(valid.ravel()), y.shape)
         self.assertEqual(mips['axial'].shape, (4, 3)); self.assertEqual(mips['sagittal'].shape, (3, 2))
         self.assertEqual(int(mips['axial'].sum()), 1); self.assertTrue(mips['axial'][0, 0])
+
+    def test_matched_interior(self):
+        from vatl_sdf.deviation import matched_edges, matched_interior
+        from vatl_sdf.graph_coords import edge_samples
+        pos = np.array([[float(i), 0., 0.] for i in range(21)] + [[10., 8., 0.]])
+        edges = np.array([[i, i + 1] for i in range(20)] + [[10, 21]])
+        pts, eid = edge_samples(pos, edges, 0.4)
+        path = np.c_[np.arange(5., 15.1, 0.5), np.zeros(21), np.zeros(21)]
+        m = matched_edges(pts, eid, path, 3.)
+        self.assertEqual(set(m), set(range(2, 18)))                        # >= 50% of samples within 3 mm; side branch 0-8 mm: < 0.5
+        keep, m2 = matched_interior(pts, eid, path, path[0], path[-1], 3.)
+        np.testing.assert_array_equal(m, m2)
+        d = np.minimum(np.linalg.norm(pts[keep] - path[0], axis=1), np.linalg.norm(pts[keep] - path[-1], axis=1))
+        self.assertTrue((d >= 2.5 - 1e-9).all())                           # margin min(3, 10 / 4)
+        far, none = matched_interior(pts + [0., 20., 0.], eid, path, path[0], path[-1], 3.)
+        self.assertEqual(len(far), 0); self.assertEqual(len(none), 0)
+
+    def test_categorical_p(self):
+        from vatl_sdf.deviation import categorical_p, smoothed_categories
+        cats = np.array([[2], [2], [2], [2], [2], [2], [1], [0]])
+        pi = smoothed_categories(cats, np.ones(8))
+        np.testing.assert_allclose(pi[:, 0], [(1 + 1 / 3) / 9, (1 + 1 / 3) / 9, (6 + 1 / 3) / 9])
+        np.testing.assert_allclose(pi.sum(0), [1.])
+        self.assertAlmostEqual(categorical_p(pi, np.array([1]))[0], 2 * (1 + 1 / 3) / 9)    # ties: both rare categories
+        self.assertAlmostEqual(categorical_p(pi, np.array([2]))[0], 1.)
+
+    def test_zero_causes(self):
+        from analysis.deviation.segment_zero_diagnostics import zero_cause
+        d = np.array([5., 5., 1., 1., 0.5]); raw = np.array([2., 2., -0.3, 1.5, 1.4])
+        self.assertEqual(zero_cause(d, raw, 3.), ('no_point', 2, 1))      # 2 no-point zeros vs 1 clipped
+        self.assertEqual(zero_cause(np.array([1., 1., 1.]), np.array([-1., -1., 2.]), 3.), ('clipped', 0, 2))
+        self.assertEqual(zero_cause(np.array([1., 1.]), np.array([1., 2.]), 3.), ('other', 0, 0))
 
     def test_transform_shift(self):
         from vatl_sdf.deviation import transform_shift
