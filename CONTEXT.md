@@ -773,9 +773,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47311 | D0 deviation: as 47203 + --save-elements (diagnostics dump; statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0 | 0 | completed 40 min; FPR and sensitivity identical to 47203 |
 | 47312 | D0 diagnostics: segment_diagnostics.py -> d0_report.json (afterok 47311) (CPU, QOS dev) | 4 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0/d0_report.json | 0 | completed 9 s |
 | 47315 | D1 deviation: as 47311 + presence-conditioned segment families (seg_radius_cond, coverage_cond, condpresent rows), conditional-extended min-p (CPU, QOS normal) | 16 CPU, frozen c453771 | sdf_only/analysis/20261102_deviation_D1 | 0 | completed 31 min |
-| 47346 | E1 deviation: as 47315 + radius_allr family, any_allr, extended --save-elements dump (geometry for E2) (CPU, QOS normal) | 16 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1 | | submitted |
-| 47347 | E1 node diagnostics (segment_diagnostics.py, nodes_allr) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1/d0_report.json | | submitted (dependency) |
-| 47348 | E2 figures (plot_deviations.py) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_figures | | submitted (dependency) |
+| 47346 | E1 deviation: as 47315 + radius_allr family, any_allr, extended --save-elements dump (geometry for E2) (CPU, QOS normal) | 16 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1 | 0 | completed 35 min; all previous fields identical to 47315 |
+| 47347 | E1 node diagnostics (segment_diagnostics.py, nodes_allr) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_E1/d0_report.json | 0 | completed 6 s |
+| 47348 | E2 figures (plot_deviations.py) (afterok 47346) (CPU, QOS dev) | 4 CPU, frozen 9148e0a | sdf_only/analysis/20261102_deviation_figures | 0 | completed 24 s |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2151,3 +2151,44 @@ CPU tests first (tests/test_deviation.py): node_radius_allr on the tube (thinned
   pipeline: radius_allr / any_allr keys, extended dump; plot script on the pipeline fixture; diagnostics for radius_allr.
 Jobs: E1 deviation (16 CPU, ~45 min, QOS normal, both manifests, replicates, --save-elements) -> E1 diagnostics
   (4 CPU, dev, ~1 min) and E2 figures (4 CPU, dev, ~10 min), both afterok.
+
+### Step E1 result: radius_allr (job 47346 / 47347, screening evidence; uniform, r3mm)
+
+Regression: every field of 47315 (FPR, sensitivity, per edge) identical in 47346. Figure:
+20261102_deviation_E1/dose_response_radius.png (plot_dose_response.py ... radius).
+Pre-registered criteria (CONTEXT Step 0 of this stage, commit 1e1618a):
+  (1) FAIL: learned population-referenced radius_allr detection thin0.5 0.000, thin0.3 0.000 (needed >= 0.20).
+  (2) PASS: radius_allr FPR, learned: null LOO 0.030 (pop) / 0.030 (null), validation 0.00 / 0.00 (<= 0.06).
+  (3) FAIL: removal 0.410 vs radius_absz 0.434 (ok, within 0.05); stenosis0.5 0.048 vs 0.157 and stenosis0.3 0.060
+      vs 0.181 (lower by 0.11-0.12).
+FPR null LOO / validation (subjects with a BH discovery):
+| method | ref | radius_absz | radius_allr | any (old) | any_allr (old + radius_allr) |
+|---|---|---|---|---|---|
+| learned | population | 0.027 / 0 | 0.030 / 0 | 0.033 / 0.05 | 0.050 / 0.05 |
+| learned | null | 0.027 / 0.05 | 0.030 / 0 | 0.037 / 0.10 | 0.067 / 0.10 |
+| centroid | population | 0.033 / 0 | 0.030 / 0 | 0.033 / 0 | 0.053 / 0 |
+| centroid | null | 0.023 / 0 | 0.020 / 0 | 0.023 / 0 | 0.043 / 0 |
+Sensitivity per copy, learned, radius_absz / radius_allr (population; null in brackets); baseline 0 / 0 (0.024 / 0):
+thin0.5 0.024 / 0.000 (0.012 / 0.012); thin0.3 0.036 / 0.000 (0.024 / 0.060); removal 0.434 / 0.410 (0.482 / 0.506);
+stenosis0.5 0.157 / 0.048 (0.096 / 0.048); stenosis0.3 0.181 / 0.060 (0.120 / 0.205); displace2 0.048 / 0.024
+(0.024 / 0.024); displace3 0.012 / 0.036 (0 / 0.060); displace5 0.024 / 0.048 (0 / 0.096). Union any_allr: removal
+0.578 vs any 0.434 (population; null 0.639 vs 0.482), other labels +0.00-0.06 (not a pre-registered criterion).
+Centroid: radius_allr lower than radius_absz everywhere (removal 0.145 vs 0.265; stenosis 0 vs 0.169).
+Per edge (learned, pop absz / allr): removal e4 0.72 / 0.61, e5 0.22 / 0.44, e6 0.59 / 0.35, e7 0.33 / 0.22,
+e11 0 / 0.08, e14 0.44 / 0.56; stenosis0.3 e4 0.28 / 0.06, e6 0.47 / 0.24; thinning 0-0.06 on every edge.
+Node diagnostic (radius_allr, learned): the thinned target nodes stay tested (thin0.3: 168 tested copy vs 169 baseline;
+1 copy loses a tested node, vs 63 for radius_absz). Radius change on nodes tested in both (median, IQR): thin0.5 -0.21
+(0.77), thin0.3 -0.22 (1.07), stenosis -0.37 (1.0-1.3), removal -2.53 (2.56). Robust z of the most changed target node
+drops by a median 2.7 (thin0.3); smallest target-node population p median 0.033 (10% 0.011, min 0.0048), above the BH
+threshold for one discovery among the tested nodes. Training spread at the target nodes: robust SD 0.20-0.47 mm with
+1st percentiles -0.21 to 0.97 mm.
+Facts: keeping all-radius points removes the drop-out (thinned nodes remain tested and shift by about -0.2 mm in the
+median and -2.7 in z) but the shift is too small for BH; stenosis detection falls; calibration is fine.
+Hypotheses (untested): population nodes sit at segment junctions, so the node median over all points within 3 mm mixes
+the thinned segment with the unthinned neighbouring branches (and small side branches), diluting both thinning and
+the 4 mm stenosis; the large-vessel selection of radius_absz excludes small side branches, which is why it sees the
+stenosis better.
+Forking paths: Steps A-E all used the same 664 copies (same 83 subject-edge pairs) and the same 20 validation subjects.
+Proposal (not run): a confirmatory run with the design frozen at commit 9148e0a on held-out data: the remaining 13
+of the first 33 validation IDs (YAML order) and freshly seeded copies (new manifest seed) of their eligible pairs,
+refitted with the same budget; report only the pre-registered rows (old any, radius_absz, radius_allr, subject min-p).
