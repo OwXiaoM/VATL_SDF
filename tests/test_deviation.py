@@ -294,6 +294,16 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         val = summary['fpr']['learned/uniform']['validation']
         self.assertIn('seg_radius', val['elements_bh_population']['r3mm_tau0.1']); self.assertIn('any_new', val['elements_bh']['r3mm_tau0.1'])
         self.assertIn('primary_family_minp_ext', val)
+        for fam in ('seg_radius_cond', 'coverage_cond', 'seg_radius_condpresent', 'coverage_condpresent', 'any_new_cond', 'any_new_condpresent'):
+            self.assertIn(fam, val['elements_bh_population']['r3mm_tau0.1']); self.assertIn(fam, val['elements_bh']['r3mm_tau0.1'])
+        self.assertIn('discovery_fraction_absent_query', val['elements_bh_population']['r3mm_tau0.1']['seg_radius_cond'])
+        self.assertIn('primary_family_minp_cond', val)
+        for key in ('population_seg_radius_cond', 'null_coverage_cond', 'population_any_new_cond', 'null_any_new_condpresent',
+                    'subject_detected_cond', 'baseline_subject_detected_cond', 'replicate_subject_detected_cond', 'target_present_after'):
+            self.assertIn(key, row)
+        self.assertIn('subject_detection_cond', sens['by_perturbation']['remove0'])
+        self.assertIn('population_any_new_cond', sens['by_perturbation']['remove0']['per_edge'][str(row['population_edge'])])
+        self.assertEqual(row['population_any_all'], row['population_any'] or row['population_any_new'])   # any_all: old + Step B only
         rep = summary['replicates']['learned/uniform']
         self.assertEqual(rep['valrep1']['fpr']['subjects'], 2)
         self.assertEqual(len(rep['transform_shift_mm']['valrep1']), 2)
@@ -423,6 +433,30 @@ class DeviationStatisticsTests(unittest.TestCase):
         self.assertGreater(moved['offset'][0], 2.)
         gone = stats(*perturb(sdf, affine, graph, edges, 'remove'))
         self.assertLess(gone['seg_radius'][0], 0.5); self.assertLess(gone['coverage'][0], 0.8)   # (small branch root keeps offset low)
+
+    def test_conditional_segment_p(self):
+        from vatl_sdf.deviation import conditional_segment_p, radius_deviation
+        seg_tr = np.array([[0.], [0.], [0.], [2.], [2.1], [1.9], [2.2], [1.8]])
+        cov_tr = np.array([[0.], [0.1], [0.2], [1.], [0.9], [0.8], [1.], [0.7]])
+        present = cov_tr >= 0.5
+        w = np.ones(8)
+        out = conditional_segment_p(np.array([0.5]), seg_tr, np.array([0.3]), cov_tr, present, np.array([False]), w)
+        uncond = radius_deviation(np.array([0.5]), seg_tr, w)[0, 3]
+        self.assertAlmostEqual(out['pop_p_seg_radius_cond'][0], 2 * 1 / 6)        # (0 + c) / (5 + c) two-sided
+        self.assertGreater(uncond, out['pop_p_seg_radius_cond'][0])
+        self.assertAlmostEqual(out['pop_p_coverage_cond'][0], 1 / 6)               # absent query: smallest attainable p
+        self.assertTrue(np.isnan(out['pop_p_seg_radius_condpresent'][0]))          # present-only row: absent query -> NaN
+        self.assertTrue(np.isnan(out['seg_radius_condpresent_absz'][0]))
+        self.assertLess(out['seg_radius_cond_z'][0], -5)
+        kept = conditional_segment_p(np.array([1.9]), seg_tr, np.array([0.9]), cov_tr, present, np.array([True]), w)
+        self.assertAlmostEqual(kept['pop_p_seg_radius_condpresent'][0], kept['pop_p_seg_radius_cond'][0])
+        self.assertAlmostEqual(kept['coverage_condpresent_deficit'][0], 0.1)
+
+    def test_conditional_null_p(self):
+        from vatl_sdf.deviation import element_null_p
+        nulls = np.array([[1.], [2.], [3.], [9.]]); present = np.array([[True], [True], [True], [False]])
+        np.testing.assert_allclose(element_null_p(np.array([5.]), nulls), [2 / 5])
+        np.testing.assert_allclose(element_null_p(np.array([5.]), nulls, present), [1 / 4])   # absent null subject left out
 
     def test_transform_shift(self):
         from vatl_sdf.deviation import transform_shift

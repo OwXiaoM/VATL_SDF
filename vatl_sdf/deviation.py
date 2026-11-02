@@ -35,6 +35,14 @@ Segment statistics per population edge (separate element families, added 2026-11
               lower tail (null-referenced score 1 - coverage).
 Subject level, separate from the primary test: extended family min-p = primary scores + -log(min_e population p)
 of the three segment families (primary population).
+Presence-conditioned segment families (Step D1, added 2026-11-02; all families above unchanged): reference
+distributions per edge use only subjects in which the edge is present (large-vessel presence, the edge family's
+rule; training: trained transforms; null-referenced: null queries with the edge present):
+  seg_radius_cond   two-sided radius tail / |robust z| against the conditional distribution;
+  coverage_cond     lower tail / 1 - coverage (present subjects have coverage >= edge_cover by construction);
+  *_condpresent     the same with absent-query elements left out (p = NaN; absence is the edge family's job).
+Subject level, separate: conditional-extended family min-p = primary scores + -log(min population p) of
+seg_radius_cond and coverage_cond.
 Replicate refits (--replicate-sets) and perturbed copies are scored as extra queries against the same null.
 """
 import argparse
@@ -120,6 +128,27 @@ def tail_p(values, distribution, w, side, min_subjects=3):
         hit = col >= v if side == 'upper' else col <= v
         out[k] = min(1., (wk[hit].sum() + c) / (wk.sum() + c))
     return out
+
+
+def conditional_segment_p(seg, seg_tr, cov, cov_tr, present_tr, present, w):
+    """Presence-conditioned segment statistics of one query (Step D1): reference = training subjects with the edge
+    present; *_condpresent: absent-query elements -> NaN."""
+    seg_dev = radius_deviation(seg, np.where(present_tr, seg_tr, np.nan), w)
+    p_cov = tail_p(cov, np.where(present_tr, cov_tr, np.nan), w, 'lower')
+    absent = ~np.asarray(present, bool)
+    out = {'seg_radius_cond_z': seg_dev[:, 1], 'seg_radius_cond_absz': np.abs(seg_dev[:, 1]), 'pop_p_seg_radius_cond': seg_dev[:, 3],
+           'coverage_cond_deficit': 1. - cov, 'pop_p_coverage_cond': p_cov}
+    for name in ('seg_radius_cond_absz', 'pop_p_seg_radius_cond', 'coverage_cond_deficit', 'pop_p_coverage_cond'):
+        out[name.replace('_cond', '_condpresent')] = np.where(absent, np.nan, out[name])
+    return out
+
+
+def element_null_p(values, nulls, null_present=None):
+    """Per-element empirical p against the null queries (rows of nulls); null_present: only null queries with the
+    element present form the reference."""
+    if null_present is not None:
+        nulls = np.where(null_present, nulls, np.nan)
+    return np.array([empirical_p(values[i], nulls[:, i]) for i in range(len(values))])
 
 
 def outcome_p(p_success, observed):
@@ -348,6 +377,10 @@ def score_query(task):
             elements[pop_key] = {'seg_radius_absz': np.abs(seg_dev[:, 1]), 'seg_radius': seg['seg_radius'], 'seg_radius_z': seg_dev[:, 1],
                                  'offset': seg['offset'], 'coverage': seg['coverage'], 'coverage_deficit': 1. - seg['coverage'],
                                  'pop_p_seg_radius': seg_dev[:, 3], 'pop_p_offset': p_offset, 'pop_p_coverage': p_cover}
+            cond = conditional_segment_p(seg['seg_radius'], seg_tr['seg_radius'], seg['coverage'], seg_tr['coverage'], Ytr.astype(bool), yq, w)
+            elements[pop_key].update(cond)
+            for name, pp in (('segradcond', cond['pop_p_seg_radius_cond']), ('coveragecond', cond['pop_p_coverage_cond'])):
+                scores[f'{name}_minp_{tag}'] = float(-np.log(np.nanmin(pp))) if np.isfinite(pp).any() else np.nan
             elements[pop_key].update({'edge_surprise': surprise, 'edge_present': yq, 'edge_p': pe,
                                  'conn_graph': conn['graph'], 'conn_mask': conn['mask'],
                                  'radius_absz': np.where(floor, np.nan, np.abs(dev['sdf'][:, 1])),
@@ -428,13 +461,27 @@ def extended_scores(method, available):
     return prim if method == 'decoder' else prim + ['segrad_minp_r3mm', 'offset_minp_r3mm', 'coverage_minp_r3mm']
 
 
+def conditional_scores(method, available):
+    """Primary family + presence-conditioned segment minimum population p (Step D1; separate; decoder: primary only)."""
+    prim = primary_scores(method, available)
+    return prim if method == 'decoder' else prim + ['segradcond_minp_r3mm', 'coveragecond_minp_r3mm']
+
+
 ELEMENT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz')   # 'any' = these (unchanged)
 NEW_FAMILIES = ('seg_radius', 'offset', 'coverage')                              # 'any_new'
-ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES
-NULL_SCORE = {'seg_radius': 'seg_radius_absz', 'offset': 'offset', 'coverage': 'coverage_deficit'}   # element, null-referenced
+COND_FAMILIES = ('seg_radius_cond', 'coverage_cond')                             # 'any_new_cond' (Step D1)
+CONDPRESENT_FAMILIES = ('seg_radius_condpresent', 'coverage_condpresent')        # 'any_new_condpresent'
+ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES
+FAMILY_GROUPS = (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ELEMENT_FAMILIES + NEW_FAMILIES),
+                 ('any_new_cond', COND_FAMILIES), ('any_new_condpresent', CONDPRESENT_FAMILIES))
+NULL_SCORE = {'seg_radius': 'seg_radius_absz', 'offset': 'offset', 'coverage': 'coverage_deficit',
+              'seg_radius_cond': 'seg_radius_cond_absz', 'coverage_cond': 'coverage_cond_deficit',
+              'seg_radius_condpresent': 'seg_radius_condpresent_absz', 'coverage_condpresent': 'coverage_condpresent_deficit'}
+NULL_CONDITIONED = set(COND_FAMILIES + CONDPRESENT_FAMILIES)  # null reference: null queries with the edge present
 POPULATION_P = {'edge_surprise': 'pop_p_edge', 'conn_graph': 'pop_p_conn_graph', 'conn_mask': 'pop_p_conn_mask',
                 'radius_absz': 'pop_p_radius', 'seg_radius': 'pop_p_seg_radius', 'offset': 'pop_p_offset',
-                'coverage': 'pop_p_coverage'}
+                'coverage': 'pop_p_coverage', 'seg_radius_cond': 'pop_p_seg_radius_cond', 'coverage_cond': 'pop_p_coverage_cond',
+                'seg_radius_condpresent': 'pop_p_seg_radius_condpresent', 'coverage_condpresent': 'pop_p_coverage_condpresent'}
 
 
 def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
@@ -457,19 +504,32 @@ def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
             for f in ALL_FAMILIES:
                 v = el[pop_key][NULL_SCORE.get(f, f)]
                 nulls = np.array([results[(j, method, wname)][1][pop_key][NULL_SCORE.get(f, f)] for j in null])
-                p_el = np.array([empirical_p(v[i], nulls[:, i]) for i in range(len(v))])
+                null_present = np.array([results[(j, method, wname)][1][pop_key]['edge_present'] for j in null]) \
+                    if f in NULL_CONDITIONED else None
+                p_el = element_null_p(v, nulls, null_present)
                 p_pop = np.asarray(el[pop_key][POPULATION_P[f]], float)
                 fam[f] = {'p': p_el, 'reject': benjamini_hochberg(p_el, q),
                           'p_population': p_pop, 'reject_population': benjamini_hochberg(p_pop, q)}
+                if f in NULL_CONDITIONED:
+                    fam[f]['query_present'] = np.asarray(el[pop_key]['edge_present'], bool)
             rec['elements'][pop_key] = fam
         rec['min_p'] = float(np.nanmin([pv[s] for s in prim]))
         rec['min_p_ext'] = float(np.nanmin([pv.get(s, np.nan) for s in extended_scores(method, scores[k])]))
+        rec['min_p_cond'] = float(np.nanmin([pv.get(s, np.nan) for s in conditional_scores(method, scores[k])]))
         out[k] = rec
     for k, rec in out.items():
         null = [j for j in keys_null if j != k]
         rec['p_family'] = (1. + sum(out[j]['min_p'] <= rec['min_p'] for j in null)) / (1. + len(null))
         rec['p_family_ext'] = (1. + sum(out[j]['min_p_ext'] <= rec['min_p_ext'] for j in null)) / (1. + len(null))
+        rec['p_family_cond'] = (1. + sum(out[j]['min_p_cond'] <= rec['min_p_cond'] for j in null)) / (1. + len(null))
     return out
+
+
+def absent_fraction(pvals, keys, pop_key, f, reject_key):
+    """Fraction of a conditioned family's discoveries on elements whose edge is absent in the query (None: none)."""
+    rej = np.concatenate([pvals[k]['elements'][pop_key][f][reject_key] for k in keys])
+    absent = np.concatenate([~pvals[k]['elements'][pop_key][f]['query_present'] for k in keys])
+    return float((rej & absent).sum() / rej.sum()) if rej.any() else None
 
 
 def false_positive_rates(pvals, keys, alpha):
@@ -479,13 +539,16 @@ def false_positive_rates(pvals, keys, alpha):
     out = {'subjects': len(keys), 'nominal_alpha': alpha, 'per_score': rates,
            'primary_holm_any': float(np.mean([pvals[k]['holm_any'] for k in keys])),
            'primary_family_minp': float(np.mean([pvals[k]['p_family'] <= alpha for k in keys])),
-           'primary_family_minp_ext': float(np.mean([pvals[k]['p_family_ext'] <= alpha for k in keys]))}
+           'primary_family_minp_ext': float(np.mean([pvals[k]['p_family_ext'] <= alpha for k in keys])),
+           'primary_family_minp_cond': float(np.mean([pvals[k]['p_family_cond'] <= alpha for k in keys]))}
     elements = {}
     for pop_key in pvals[keys[0]]['elements']:
         elements[pop_key] = {f: {'subjects_with_discovery': float(np.mean([pvals[k]['elements'][pop_key][f]['reject'].any() for k in keys])),
                                  'mean_discoveries': float(np.mean([pvals[k]['elements'][pop_key][f]['reject'].sum() for k in keys]))}
                              for f in ALL_FAMILIES}
-        for name, fams in (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ALL_FAMILIES)):
+        for f in NULL_CONDITIONED:
+            elements[pop_key][f]['discovery_fraction_absent_query'] = absent_fraction(pvals, keys, pop_key, f, 'reject')
+        for name, fams in FAMILY_GROUPS:
             elements[pop_key][name] = float(np.mean([any(pvals[k]['elements'][pop_key][f]['reject'].any() for f in fams) for k in keys]))
     out['elements_bh'] = elements
     population = {}
@@ -497,7 +560,9 @@ def false_positive_rates(pvals, keys, alpha):
                                                                                                     for k in keys]).astype(float)))
                                    if any(len(fam(k, f)['p_population']) for k in keys) else None}
                                for f in ALL_FAMILIES}
-        for name, fams in (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ALL_FAMILIES)):
+        for f in NULL_CONDITIONED:
+            population[pop_key][f]['discovery_fraction_absent_query'] = absent_fraction(pvals, keys, pop_key, f, 'reject_population')
+        for name, fams in FAMILY_GROUPS:
             population[pop_key][name] = float(np.mean([any(fam(k, f)['reject_population'].any() for f in fams) for k in keys]))
     out['elements_bh_population'] = population
     return out
@@ -795,7 +860,8 @@ def main():
     print(json.dumps({k: {g: v[g]['primary_holm_any'] for g in v} for k, v in summary['fpr'].items()}, indent=1))
 
 
-SAVED_ELEMENTS = ('seg_radius', 'offset', 'coverage', 'floor', 'pop_p_radius', 'pop_p_seg_radius', 'pop_p_offset', 'pop_p_coverage')
+SAVED_ELEMENTS = ('seg_radius', 'offset', 'coverage', 'floor', 'pop_p_radius', 'pop_p_seg_radius', 'pop_p_offset', 'pop_p_coverage',
+                  'pop_p_seg_radius_cond', 'pop_p_coverage_cond')
 
 
 def save_elements(path, method, train_ids, keys, queries, results):
@@ -832,12 +898,15 @@ def target_elements(pop, target_path, r):
 
 def element_flags(fam, edges, nodes, reject_key):
     """Discoveries among the elements mapped to the perturbed target: edge families on its edges, node radius on their
-    end nodes. 'any' = the original four families (unchanged), 'any_new' = segment families, 'any_all' = both."""
-    out = {f: bool(fam[f][reject_key][edges].any()) if edges else False for f in ('edge_surprise', 'conn_graph', 'conn_mask') + NEW_FAMILIES}
+    end nodes. 'any' = the original four families (unchanged), 'any_new' = segment families, 'any_all' = both;
+    any_new_cond / any_new_condpresent = presence-conditioned families (Step D1)."""
+    out = {f: bool(fam[f][reject_key][edges].any()) if edges else False for f in ALL_FAMILIES if f != 'radius_absz'}
     out['radius_absz'] = bool(fam['radius_absz'][reject_key][nodes].any()) if nodes else False
     out['any'] = any(out[f] for f in ELEMENT_FAMILIES)
     out['any_new'] = any(out[f] for f in NEW_FAMILIES)
     out['any_all'] = out['any'] or out['any_new']
+    out['any_new_cond'] = any(out[f] for f in COND_FAMILIES)
+    out['any_new_condpresent'] = any(out[f] for f in CONDPRESENT_FAMILIES)
     return out
 
 
@@ -875,6 +944,8 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
                'population_edge': c['population_edge'], 'p_edge': c['p_edge'], 'segment_radius_mm': c['segment_radius_mm'],
                'subject_detected': pv[k]['p_family'] <= alpha, 'baseline_subject_detected': pv[base]['p_family'] <= alpha,
                'subject_detected_ext': pv[k]['p_family_ext'] <= alpha, 'baseline_subject_detected_ext': pv[base]['p_family_ext'] <= alpha,
+               'subject_detected_cond': pv[k]['p_family_cond'] <= alpha, 'baseline_subject_detected_cond': pv[base]['p_family_cond'] <= alpha,
+               'replicate_subject_detected_cond': float(np.mean([pv[r]['p_family_cond'] <= alpha for r in rk])) if rk else None,
                'replicate_subject_detected': float(np.mean([pv[r]['p_family'] <= alpha for r in rk])) if rk else None,
                'replicate_subject_detected_ext': float(np.mean([pv[r]['p_family_ext'] <= alpha for r in rk])) if rk else None,
                'transform_rms_mm': transform_shift(mb['lines'], mb['A'], mb['t'], mq['A'], mq['t'])}
@@ -903,12 +974,15 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
                  'subject_detection': float(g.subject_detected.mean()), 'baseline_subject_detection': float(g.baseline_subject_detected.mean()),
                  'subject_detection_ext': float(g.subject_detected_ext.mean()),
                  'baseline_subject_detection_ext': float(g.baseline_subject_detected_ext.mean()),
+                 'subject_detection_cond': float(g.subject_detected_cond.mean()),
+                 'baseline_subject_detection_cond': float(g.baseline_subject_detected_cond.mean()),
                  'subjects_detected': int(g.groupby('subject_id').subject_detected.any().sum()),
                  'subjects_detected_ext': int(g.groupby('subject_id').subject_detected_ext.any().sum()),
                  'transform_rms_mm_median': float(g.transform_rms_mm.median()), 'transform_rms_mm_p90': float(g.transform_rms_mm.quantile(0.9))}
         if g.replicate_subject_detected.notna().any():
             entry['replicate_subject_detection'] = float(g.replicate_subject_detected.mean())
             entry['replicate_subject_detection_ext'] = float(g.replicate_subject_detected_ext.mean())
+            entry['replicate_subject_detection_cond'] = float(g.replicate_subject_detected_cond.mean())
         if method != 'decoder':
             for col in [c for c in g.columns if c.startswith(('population_', 'null_', 'baseline_population_', 'baseline_null_',
                                                                'replicate_population_', 'replicate_null_', 'target_', 'baseline_target_'))
@@ -917,12 +991,15 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
             entry['target_present_after'] = float(g.target_present_after.dropna().mean()) if g.target_present_after.notna().any() else None
             entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]),
                                           **{f'{ref}_{f}': float(h[f'{ref}_{f}'].mean()) for ref in ('population', 'null')
-                                             for f in ('any', 'any_new', 'any_all') + NEW_FAMILIES},
-                                          'subject': float(h.subject_detected.mean()), 'subject_ext': float(h.subject_detected_ext.mean())}
+                                             for f in ('any', 'any_new', 'any_all', 'any_new_cond', 'any_new_condpresent')
+                                             + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES},
+                                          'subject': float(h.subject_detected.mean()), 'subject_ext': float(h.subject_detected_ext.mean()),
+                                          'subject_cond': float(h.subject_detected_cond.mean())}
                                  for e, h in g.groupby('population_edge')}
         groups[label] = entry
     validation_fpr = {'subject_family_minp': float(np.mean([pv[k]['p_family'] <= alpha for k in keys_val])),
-                      'subject_family_minp_ext': float(np.mean([pv[k]['p_family_ext'] <= alpha for k in keys_val]))}
+                      'subject_family_minp_ext': float(np.mean([pv[k]['p_family_ext'] <= alpha for k in keys_val])),
+                      'subject_family_minp_cond': float(np.mean([pv[k]['p_family_cond'] <= alpha for k in keys_val]))}
     return {'by_perturbation': groups, 'validation_fpr': validation_fpr, 'copies': rows}
 
 
