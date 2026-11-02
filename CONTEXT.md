@@ -2216,3 +2216,74 @@ Facts read from the maps / dump:
 - Examples: thin0.3 on IXI403 edge 4 turns the edge into absent-but-expected with class radius_threshold (all-radius
   centreline still there, large-vessel centreline gone), no BH discovery; removal gives graph_defect plus radius_absz
   (nodes 3, 4; null-referenced also 14) and radius_allr (nodes 3, 4) discoveries and a conn_mask discovery at edge 5.
+
+## Stage: matched-segment interior radius (F1) and threshold-free presence (F2) (user request 2026-11-02)
+
+No new training; same model, populations, sets, null 300, alpha = q = 0.05, uniform weighting primary. User: plan
+with pre-registered criteria before any job; F0 diagnostics first; run F0, F1, F2 in order; push over SSH.
+Confirmatory stage (GPU) only after the user confirms.
+
+### Step 0: plan (2026-11-02, written before any F job)
+
+Failure mechanisms to address (facts from D0 / D1 / E1):
+- Step B seg_radius samples the POPULATION path interior and reads -SDF at the nearest all-radius subject graph point
+  within r, clipped at 0, 0 if none: every subject without a nearby vessel contributes 0, so 10-27% of the training
+  reference is 0 and the smallest population p is 0.20-0.52 (D0).
+- D1 conditioned on large-vessel presence: 0.6-6% of present subjects still have seg_radius ~0 (p >= 0.0077 vs the BH
+  threshold 0.0031); hypothesis: presence satisfied by a neighbouring vessel, or nearest point outside the mask
+  (clipped). F0 tests this.
+- E1 node radius over all points within 3 mm of a junction node mixes the target with neighbouring branches (thinned
+  nodes shift only -0.2 mm).
+F0 (diagnostics, no new statistic): for the 6 target edges, training subjects (trained transforms) with seg_radius
+  <= 0.1 mm AND large-vessel presence; per subject the zero-valued interior samples are split into no_point (no
+  all-radius graph point within r) and clipped (nearest point within r but -SDF <= 0, outside the mask); class =
+  the majority cause; separately: neighbour = no subject graph edge matched to the population edge by the F1 rule
+  (coverage then comes from a vessel passing by), other = none of these. Per edge counts, and the F1 matched value of
+  these subjects (NaN = would leave the reference). New script analysis/deviation/segment_zero_diagnostics.py, reads
+  the E2data dump (population geometry, training seg_radius / presence), checkpoint transforms, SDFs and graphs.
+F1 matched-segment interior radius (new rows vs Step B seg_radius; one factor = where/how the radius is measured):
+  - matching (all radii, extends perturbation.subject_segments, which used the same rule on large edges only): a
+    subject graph edge is matched to population edge k if >= 50% of its 0.4 mm samples (template, method transform)
+    lie within r (3 mm primary, 2 mm secondary) of the population edge path;
+  - interior: samples of matched edges at template distance >= m = min(3 mm, |a - b| / 4) from both population end
+    nodes a, b (as interior_samples); none -> the matched sample farthest from both end nodes;
+  - value: -SDF (trilinear, native, unclipped) at the interior samples (native position of the subject's own graph
+    sample); segrad_match_med = median, segrad_match_q25 = 25th percentile (separate row, targets local stenosis);
+  - no matched edge -> NaN (untested; absence left to the presence families); reference distributions = subjects
+    with a matched segment for that edge (conditioning on matching replaces large-vessel presence);
+  - population p = two-sided radius tail (radius_deviation); null score |robust z|, empirical p against null queries
+    with a finite value (LOO); BH within family; flags on the copy's mapped target edges.
+  Why: NaN instead of 0 removes the absent subjects from the reference (B); measuring on the subject's own matched
+  segment removes zeros from neighbouring-vessel coverage and from population-path samples off the subject's vessel
+  (D1); no clipping removes the artificial 0 mass; interior samples exclude junction neighbourhoods (E1 dilution);
+  the 25th percentile targets a 4 mm stenosis on a 10-20 mm segment.
+F2 threshold-free presence, option (a) chosen (all-radius presence with radius strata), new family presence3:
+  per population edge a 3-category outcome: large = existing large-vessel presence (coverage >= 0.5); small = not
+  large but all-radius coverage >= 0.5 (all-radius graph centreline within r of >= 50% of the path samples); absent =
+  neither. Population p = sum of the smoothed category probabilities not larger than that of the observed category
+  (pi_c = (sum w [c] + c0 / 3) / (sum w + c0), c0 = sum w / ESS); null score -log pi_observed, empirical null p.
+  Why (a) and not (b): binary large presence maps thinning (large -> small) onto natural absence, whose frequency
+  8-48% is the D0 floor; (a) gives thinning its own outcome with its own (possibly much smaller) frequency. A
+  continuous radius-weighted coverage (b) puts absent subjects at 0, below any thinned value, so its lower-tail p
+  stays >= the absent fraction (the same floor).
+Pre-registered success criteria (fixed now; applied to each new family separately: segrad_match_med,
+segrad_match_q25, presence3; learned, population-referenced, mapped target edges):
+  (1) thin0.5 detection >= 0.20 and thin0.3 >= thin0.5;
+  (2) stenosis0.3 detection >= radius_absz stenosis0.3 detection in the same run;
+  (3) FPR (subjects with >= 1 BH discovery) <= 0.06 on null LOO and validation, learned, population- and
+      null-referenced (4 numbers).
+  Pass/fail per criterion and family; definitions not changed after the results.
+Reports: FPR next to sensitivity for 8 labels, learned and centroid, both references, per edge with p_edge;
+  dose-response vs radius_absz, seg_radius, radius_allr; segment diagnostic (matched / unmatched per target edge,
+  copy vs baseline); F0 counts.
+Forking paths / held-out IDs (checked 2026-11-02 against the YAML val list, every fitted_*.pt under sdf_only and all
+  repo json/md/yaml/txt): validation IDs 1-20 (YAML order) were used (1-5 also in the generalisation evaluation,
+  1-20 in all deviation steps); IDs 21-55 (35 subjects, IXI417-Guys-0939 ... IXI137-HH-1472) appear in no fitted
+  file and no config or analysis file except the frozen validation-cohort manifest. Proposal (NOT run; needs
+  confirmation, GPU): design frozen at the F commit; refit the 35 unused IDs (4 chunks of 10, ~1 GPU-h); new manifest
+  (same targets / eligibility rules, new seed: only the displacement directions depend on it) on their eligible pairs,
+  8 labels (~1,150 copies, ~115 chunks, ~25 GPU-h); deviation run (CPU, ~1.5 h); report only the pre-registered rows
+  (old any, radius_absz, radius_allr, segrad_match_med/q25, presence3, subject min-p).
+Jobs (CPU only now): F0 diagnostics (16 CPU, QOS dev, ~10 min); F deviation (16 CPU, QOS normal, ~45 min; both
+  manifests, replicates, --save-elements; serves F1 and F2 reports, old fields must equal the E2data run); F segment
+  diagnostic and dose-response plots (CPU, QOS dev, minutes).
