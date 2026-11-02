@@ -766,8 +766,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47081 | Perturbation manifest (CoW centre, targets, eligibility, 332 copies) (CPU, QOS dev) | 4 CPU, frozen fad1ebb | sdf_only/analysis/20261101_perturbation/manifest.json | 0 | COMPLETED 10 s |
 | 47082-47115 | Perturbed-copy refits (34 chunks of 10, manifest priority order: removal, thin, displace 3, displace 5; in-memory copies regenerated with commit 007f163) | 34 x 1 L40S, QOS normal/dev, frozen 007f163 | sdf_only/analysis/20261101_perturbation/refit | | completed (34/34, ~12-13 min each) |
 | 47156-47161 | Step A: replicate refits of the 20 validation subjects (sets valrep1/2/3, SEED_OFFSET 7/8/9; 2 chunks of 10 each) | 6 x 1 L40S, QOS normal/dev, frozen 9253e11 | sdf_only/analysis/20261102_valrep/refit | | submitted |
-| 47162 | Step C manifest: same targets/eligibility, kinds thin:0.3 stenosis:0.5 stenosis:0.3 displace:2 (CPU, QOS dev) | 4 CPU, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/manifest.json | 0 | submitted |
+| 47162 | Step C manifest: same targets/eligibility, kinds thin:0.3 stenosis:0.5 stenosis:0.3 displace:2 (CPU, QOS dev) | 4 CPU, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/manifest.json | 0 | completed 9 s: 332 copies, same 83 pairs and CoW centre as the first manifest |
 | 47163-47196 | Step C copy refits (34 chunks of 10, set perturbed_c, afterok 47162) | 34 x 1 L40S, QOS normal/dev, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/refit | | submitted |
+| 47197 | Deviation A+B: null 300, 332 old copies, replicates valrep1-3, segment families (afterok 47156-47161) (CPU) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_AB | 0 | submitted (dependency) |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -1843,3 +1844,16 @@ Jobs (frozen worktrees):
 - Deviation A+B (CPU 16, null 300, 332 old copies + replicates + new families; ~40 min). One run serves both reports:
   old families must reproduce job 47117 exactly (regression check), new families are added rows.
 - Deviation C (CPU 16, both manifests, replicates; ~1 h): dose-response curves for old and new statistics.
+
+Implementation notes (2026-11-02, before any Step B result):
+- B1 definition changed from the plan during CPU tests: the maximum of -SDF over a 3 mm ball picked up the original
+  vessel that thin/displace keep within r + 1 of attachments (and neighbouring vessels), so a 50% thinning of a test
+  tube read as unchanged. B1 is now -SDF (trilinear, native) at the subject's nearest mapped all-radius graph
+  centreline point within r of each interior sample (0 if none), median over interior samples.
+- Stenosis: the attachment restore is skipped inside the lumen (graph radius) of the narrowed part (nearest sample
+  f < 1), otherwise the taper near short segments' attachments was undone. Real-data check (IXI050 edge 6, segment
+  r 1.79 mm, ~11 mm): vessel voxels removed thin0.3 64, stenosis0.5 95, stenosis0.3 109, displace2 57 (+42 added).
+  Fact: on short segments thinning (whole segment, but original kept within r + 1 of attachments) can change fewer
+  voxels than the 8 mm stenosis zone.
+- Code commits: 9253e11 (replicate sets), 5db875c (Step C perturbations), cc71332 (deviation: replicates, segment
+  families, extended family min-p). Full suite 117 tests OK.
