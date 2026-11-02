@@ -2102,3 +2102,49 @@ shift the displacement produces in the median (<= 0.45 mm).
 D0 found no floor-excluded node (refuted). Proposal (not implemented, needs confirmation): a node-radius variant
 measured on ALL-radius graph points within r of the node (not only large-vessel edges), so a thinned edge keeps
 contributing its reduced radius instead of dropping out; one factor vs radius_absz, separate row.
+
+## Stage: all-radius node radius (E1) and deviation visualisation (E2) (user request 2026-11-02)
+
+No new training or refits; same model, populations, sets, null 300, alpha = q = 0.05, uniform weighting primary.
+User: plan with pre-registered success criteria, submit the jobs; run E1 then E2, report after each; push over SSH.
+
+### Step 0: plan (2026-11-02, written before any E1 job)
+
+E1 radius_allr (new element family; all existing families unchanged; one factor vs radius_absz = point selection):
+- per population node, subject radius = median of -SDF (trilinear, native mm, unscaled, NOT clipped: the same rule
+  as the radius_absz 'sdf' value) over ALL-radius graph centreline points (0.4 mm samples of every graph edge, no
+  endpoint-radius selection) whose template position (method's transform) is within r of the node;
+- no point within r -> NaN: the node is untested for that subject (as an absent node in radius_absz) and does not
+  enter the reference distribution (radius_deviation drops NaN; fewer than 3 reference subjects -> untested);
+- no floor rule: radius_absz excludes nodes with graph radius <= 0.801 mm, which D0 showed never fires (large-vessel
+  points cannot reach it), so radius_absz equals its no-floor version on these data and the only factor changed is
+  the point selection; applying the floor rule to all-radius points would remove exactly the thinned points;
+- reference: training subjects under trained transforms (learned) / centroid; two-sided radius tail p (population),
+  |robust z| with empirical null p (null LOO), BH within family; flags on the copy's mapped target nodes (as
+  radius_absz). Union rows reported separately: any_allr = old four families with radius_allr added.
+- computed in segment_statistics (same worker, same mapped all-radius points as Step B); no change to old rows.
+Pre-registered success criteria (fixed now; definitions will not change after the results):
+  (1) learned, population-referenced radius_allr detection on the mapped target nodes: thin0.5 >= 0.20 and
+      thin0.3 >= thin0.5;
+  (2) radius_allr FPR (subjects with >= 1 BH discovery) <= 0.06 on null LOO and on validation, learned, both
+      population- and null-referenced (4 numbers); centroid and the any_allr union reported but not criteria;
+  (3) learned, population-referenced radius_allr detection >= radius_absz - 0.05 for removal, stenosis0.5 and
+      stenosis0.3 (each label).
+  Pass/fail reported per criterion. Same 664 copies and 20 validation subjects as Steps A-D (forking-paths risk).
+Reports: FPR next to sensitivity for the 8 labels, learned and centroid, both references, per edge with p_edge;
+  dose-response curves radius_absz vs radius_allr; D0 node diagnostic repeated for radius_allr (tested / absent per
+  mapped target node, copy vs baseline; segment_diagnostics.py extended).
+E2 visualisation (no statistic change): the E1 run's --save-elements dump is extended (diagnostic data only) with the
+  learned populations' geometry (nodes, edges, edge paths), per query the population edge probability, defect class
+  codes, radius z (old and allr), BH reject flags (population and null) of the element families, and for the 20
+  validation subjects plus the copies of one example subject: mapped large-vessel and all-radius centrelines (template
+  mm) and axial / coronal / sagittal MIPs of the mapped vessel mask. Example subject = first validation subject in
+  the sets order with copies of all 8 labels; per label its first copy in manifest order (illustration only, no
+  selection of any statistic). analysis/deviation/plot_deviations.py (CPU job, reads deviation.json, subject reports,
+  dump) writes per subject a figure (3 MIP projections + side panel), a 20-subject montage, an absent-but-expected
+  summary per population edge and defect class vs the null-300 rate, the copy-vs-baseline examples, and one
+  self-contained index.html (PNG embedded) under sdf_only/analysis/20261102_deviation_figures.
+CPU tests first (tests/test_deviation.py): node_radius_allr on the tube (thinned middle node ~1 mm, far node NaN);
+  pipeline: radius_allr / any_allr keys, extended dump; plot script on the pipeline fixture; diagnostics for radius_allr.
+Jobs: E1 deviation (16 CPU, ~45 min, QOS normal, both manifests, replicates, --save-elements) -> E1 diagnostics
+  (4 CPU, dev, ~1 min) and E2 figures (4 CPU, dev, ~10 min), both afterok.
