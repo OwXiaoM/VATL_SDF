@@ -1789,3 +1789,54 @@ Facts:
 - Edge-presence family still 0 everywhere; thinning and displacement remain near baseline for all methods.
 - Edge 11 (midline, p 0.62, longest target 19.9 mm) removal is not detected element-wise by learned (0/12) but is by
   centroid (4/12); cause not investigated (hypothesis: different mapped population edges/nodes for this path).
+
+## Stage: validate and improve deviation sensitivity (user request 2026-11-02; no new training)
+
+Same model (21_a4_full_latent6, step 59,760), fit budget, populations (r3mm_tau0.1 primary, r2mm_tau0.1), subject sets.
+Reference null = null 300 (configs/evaluation/deviation_sets_null300.json). alpha = q = 0.05, uniform weighting primary.
+User: write the plan and submit the jobs without waiting; run A, B, C in order, report after each step.
+
+### Step 0: plan (2026-11-02)
+
+Code changes (CPU tests first, tests/test_deviation.py):
+- refit_subjects: new sets valrep1/2/3 (= the 20 validation subjects, SEED_OFFSET 7/8/9; names chosen so the
+  'fitted_validation_*' glob never matches them) and perturbed_c (Step C copies, SEED_OFFSET 10). Existing files untouched.
+- deviation: `--replicate-sets` scores replicate refits as extra queries (uniform), exactly like copies (same null,
+  families, family min-p); `--perturbations` accepts several manifests. New report blocks:
+  * replicates: subject-level and element-level 'detection' on each replicate, matched per (subject, edge) pair to the
+    copies (same mapped elements); between-refit transform variability = RMS over the subject's large-vessel centreline
+    points of ||(A1 - A2)(x - c) + (t1 - t2)|| (template mm) vs the original validation fit; primary-score
+    variability (within-subject SD over the 4 fits vs between-subject SD of the original fits);
+  * per copy: RMS transform difference (same definition) between the copy's refit and the original validation fit.
+- Step B element statistics (new families, separate rows; existing families and the primary subject test unchanged):
+  interior samples of a population edge = path samples with distance >= m to both end nodes, m = min(3 mm, |a-b|/4)
+  (fallback: the sample farthest from both nodes).
+  * B1 seg_radius: per interior sample mapped to native space (inverse refitted/trained transform), local radius =
+    max of -SDF over vessel voxels within a ball of radius r/s (r = population radius, s = det(A)^(1/3)), 0 if no
+    vessel; edge value = median over interior samples. Two-sided: population p = radius_deviation tail p (weighted,
+    one pseudo-subject); null-referenced score = |robust z|.
+  * B2 offset: per interior sample, template distance to the nearest mapped ALL-radius graph centreline point (so
+    thinning does not move it), capped at 4r = 12 mm; edge value = median. Upper tail (population: (sum w[x >= v] + c) /
+    (sum w + c)); null-referenced score = value.
+  * B3 coverage: fraction of ALL path samples within r of the mapped large-vessel centreline (the continuous
+    version of binary presence, same points). Lower tail; null-referenced score = 1 - coverage.
+  Population distributions: training subjects under trained transforms (as node radius); queries: refitted.
+  Element tests: BH within family per subject (population- and null-referenced), FPR on null 300 / validation, any_new
+  (B1-B3) reported apart from the existing any (unchanged). Subject level, as a SEPARATE comparison: extended family
+  min-p = primary scores + per-family -log(min_e population p) for B1, B2, B3; primary family min-p unchanged.
+- Step C perturbations (perturbation.py, manifest --kinds): same targets, eligibility, one edge per copy:
+  * thin factor 0.3 (identical procedure to thin 0.5, factor only; old copies regenerate bit-identically);
+  * stenosis factor 0.5 and 0.3: centre = dense segment sample farthest from the segment's chain end nodes;
+    radius factor f(d) of the Euclidean distance d to the centre: f = factor for d <= 2 mm (4 mm plateau), cosine taper
+    to 1 over 2 < d < 4 mm (8 mm affected length; a shorter segment is affected along all of it). SDF: remove a tube
+    r + 1 mm around samples with f < 1, add tube of radius f r over the segment samples within the removal reach
+    (f = 1 fills the end caps), keep the original vessel within r + 1 of attachments (as thin); graph: interior node
+    radii x f(d);
+  * displacement 2 mm (brackets the 3 mm presence tolerance).
+  Priority thin0.3, stenosis0.5, stenosis0.3, displace2; 83 pairs x 4 = 332 new copies.
+Jobs (frozen worktrees):
+- A: 6 refits (3 replicates x 2 chunks of 10; ~13 min each on 1 L40S, ~1.3 GPU-h).
+- C manifest (CPU, ~5 min); 34 refits (~7.5 GPU-h; 8 in parallel under the QOS limits, ~1 h wall).
+- Deviation A+B (CPU 16, null 300, 332 old copies + replicates + new families; ~40 min). One run serves both reports:
+  old families must reproduce job 47117 exactly (regression check), new families are added rows.
+- Deviation C (CPU 16, both manifests, replicates; ~1 h): dose-response curves for old and new statistics.
