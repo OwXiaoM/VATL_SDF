@@ -2506,3 +2506,34 @@ Proposals (NOT run; to be pre-registered and confirmed on validation IDs 21-55 w
      Recommendation: stop adding radius statistics for single-segment thinning until the p-floor / family design (P1)
      is confirmed; then reconsider.
 Forking paths: G0 used the same 20 validation subjects and 664 copies as A-F.
+
+## Stage P1: a-priori expected-edge family for segmatch_q25 (user request 2026-11-02; CPU screening only)
+
+Same model, populations, sets, null 300, alpha = q = 0.05, uniform; no new refits (664 copies, valrep1-3). The design was
+chosen from G0, which used the same 20 validation subjects and 664 copies (forking paths): screening only, to be
+confirmed on validation IDs 21-55 with fresh copies before any claim (not run without the user's confirmation).
+
+### Step 0: plan (2026-11-02, before any P1 job)
+
+Definition (one factor vs segmatch_q25 = the multiplicity family; element values, reference distributions and
+p-values unchanged): segmatch_q25_apriori = the segmatch_q25 element p-values (population and null) restricted to the
+a-priori family F = population edges with training edge probability p_e >= 0.5 (pop['edge_probability'] of the
+method's population built from the training subjects; learned and centroid each use their own population; primary and
+secondary populations separately); elements outside F get p = NaN (not tested in this row); BH within F per subject.
+segmatch_med_apriori: the same factor applied to segmatch_med (separate row). The exact families are written by the
+code into deviation.json ('apriori_families'); G0 read learned primary F = {4, 5, 6, 7, 11, 14} from the F dump.
+All existing families unchanged (regression: every existing field equal to 20261102_deviation_F).
+Pre-registered success criteria (segmatch_q25_apriori, learned, mapped target edges; fixed now):
+  (1) null-referenced detection thin0.3 >= 0.25;
+  (2) null-referenced detection stenosis0.3 >= 0.30;
+  (3) FPR (subjects with >= 1 BH discovery) <= 0.06 on null LOO and validation, population- and null-referenced (4
+      numbers).
+  Pass / fail per criterion; segmatch_med_apriori and centroid reported against the same criteria (not primary). G0
+  projected a population-referenced null FPR of 0.087 for this design (criterion 3 expected to fail on the population
+  reference).
+Reports: FPR next to sensitivity for 8 labels, learned and centroid, both references, per edge with p_edge; dose-response
+  vs segmatch_q25 (full family), radius_absz, radius_allr; floor check of the new family: m, q / m, 2 / (n_ref + 1),
+  1 / (n_null + 1) (detectability.py extended with the two rows).
+CPU tests first: pipeline keys, NaN outside F, deviation.json family list, floor rows.
+Jobs (CPU, frozen worktree): P1 deviation (16 CPU, QOS normal, ~40 min, both manifests, replicates, --save-elements);
+  detectability floor check (4 CPU, QOS dev, ~1 min, afterok).
