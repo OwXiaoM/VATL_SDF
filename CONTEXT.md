@@ -780,8 +780,8 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47400 | E2 figures v2 (cropped views, distinct colours) (afterok 47399) (CPU, QOS dev) | 4 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_figures_v2 | 0 | completed 26 s; superseded by 47620 (summary legend clipped) |
 | 47620 | E2 figures v3 (summary legend kept inside the figure) from 20261102_deviation_E2data (CPU, QOS dev) | 4 CPU, frozen 4e63a64 | sdf_only/analysis/20261102_deviation_figures_v3 | 0 | completed 25 s |
 | 47671 | F0 diagnostics: segment_zero_diagnostics.py on the E2data dump (training subjects, trained transforms) (CPU, QOS dev) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_segment_zero_F0/f0_report.json | 0 | completed 14 s |
-| 47672 | F deviation: as 47399 + segmatch_med / segmatch_q25 / presence3 (CPU, QOS normal) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F | | submitted |
-| 47673 | F segment diagnostic (segment_diagnostics.py, segments_match) (afterok 47672) (CPU, QOS dev) | 4 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F/d0_report.json | | submitted (dependency) |
+| 47672 | F deviation: as 47399 + segmatch_med / segmatch_q25 / presence3 (CPU, QOS normal) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F | 0 | completed 36 min; all previous fields identical to 47399 |
+| 47673 | F segment diagnostic (segment_diagnostics.py, segments_match) (afterok 47672) (CPU, QOS dev) | 4 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F/d0_report.json | 0 | completed 12 s |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2311,3 +2311,46 @@ Hypothesis status: "presence from a neighbouring vessel" REFUTED (0/75); "neares
 (12/75). Dominant cause (fact): the subject's all-radius centreline is farther than r = 3 mm from the population path's
 INTERIOR samples while large-vessel coverage >= 50% is reached elsewhere along the path (ends), and the subject's
 own segment still matches by the 50% rule; hypothesis: local shape / alignment differences in the middle of the edge.
+
+### Step F1 result: matched-segment interior radius (job 47672 / 47673, screening evidence; uniform, r3mm)
+
+Regression: every field of 47399 identical in 47672. Figure: 20261102_deviation_F/dose_response_f.png (seg_radius and
+presence3 are 0 everywhere and overlap).
+Pre-registered criteria (commit 8b35b65), learned, population-referenced:
+| family | (1) thin0.5 >= 0.20, thin0.3 >= thin0.5 | (2) stenosis0.3 >= radius_absz (0.181) | (3) FPR <= 0.06 (null pop / null null / val pop / val null) |
+|---|---|---|---|
+| segmatch_med | FAIL (0.024, 0.036) | FAIL (0.036) | PASS (0.040 / 0.047 / 0 / 0) |
+| segmatch_q25 | FAIL (0.036, 0.072) | FAIL (0.012) | PASS (0.047 / 0.040 / 0 / 0) |
+Sensitivity, learned, population / null (baseline 0 / 0 for all): segmatch_med thin0.5 0.024 / 0.012, thin0.3 0.036 /
+0.060, removal 0.325 / 0.349, stenosis0.5 0.012 / 0.024, stenosis0.3 0.036 / 0.084, displace2/3/5 0 / 0.012 / 0.036;
+segmatch_q25 thin0.5 0.036 / 0.036, thin0.3 0.072 / 0.084, removal 0.590 / 0.639, stenosis0.5 0.012 / 0.024,
+stenosis0.3 0.012 / 0.048, displace2/3/5 0.024 / 0.060 / 0.084. Union any_f removal 0.590 (old any 0.434).
+Centroid: removal 0.096 (med) / 0.205 (q25), all other labels <= 0.05. FPR centroid 0.013-0.023, validation 0.
+Per edge (learned, pop, med / q25): removal e4 0.44 / 0.67, e5 0.44 / 0.78, e6 0.29 / 0.47, e7 0.22 / 0.56,
+e11 0.25 / 0.67, e14 0.28 / 0.50; thinning <= 0.17 on every edge (e11 q25).
+Segment diagnostic (learned, mapped target edges, copy vs baseline): matching survives thinning and stenosis (134 of 135
+matched in copy and baseline; removal 123 matched, 12 unmatched). Change on edges matched in both (median, IQR):
+thin0.5 median -0.28 (0.69), q25 -0.57 (0.81); thin0.3 -0.30 (0.90) / -0.71 (1.06); stenosis0.5 -0.63 (0.62) / -0.80
+(0.73); stenosis0.3 -0.74 (0.80) / -1.07 (0.95); removal -1.90 / -2.56. Training reference at the target edges
+(matched subjects 430-495 of 497): robust SD 0.20-0.29 mm, 1st percentile 0.13-1.01 mm. Smallest target p (q25):
+thin0.3 median 0.016, stenosis0.3 0.012, removal 0.004 vs the BH rank-1 threshold 0.0031.
+Facts: F1 removes the zero floor (reference matched for 87-100% of training subjects, values 0.9-2.2 mm for the F0
+cases), is calibrated, and improves removal (q25 0.59 vs radius_absz 0.43), but thinning and stenosis remain below
+the criteria; the measured change under thinning is about half of what a 50% radius reduction of a ~1.6 mm vessel
+implies.
+Hypotheses (untested): the matched interior also contains matched small side branches and the original vessel kept
+within r + 1 mm of the attachments, which dilute the median; for the 4 mm stenosis, the 25th percentile of a 10-20 mm
+matched segment still includes many unaffected samples; with 16 edges per family the BH threshold needs a p of about
+0.003, i.e. a value below the 1st-percentile of ~450 reference subjects.
+
+### Step F2 result: presence3 (same job, screening evidence)
+
+Criteria: (1) FAIL (thin0.5 0.000, thin0.3 0.000); (2) FAIL (stenosis0.3 0.000); (3) PASS (0 / 0 / 0 / 0). Sensitivity 0 for
+every label, learned and centroid, both references; FPR 0.
+Facts: thinning moves the target into the 'small' category as intended (thin0.5 copies' mapped target edges: 81 small,
+39 large, 15 absent of 135), but the training frequency of 'small' at the target edges is 0.8-28% (edge 4 3%, 5 26%,
+6 0.8%, 7 28%, 11 10%, 14 1.6%), so the categorical p of a thinned edge is >= about 0.009, above the BH threshold; the
+smallest presence3 p over all null elements is 0.0047. Removal mostly yields 'small' or 'absent' (53 / 44 of 135),
+equally frequent in the population. Conclusion (screening): option (a) replaces the absence floor by a 'small' floor.
+Forking paths unchanged: same 664 copies and 20 validation subjects as A-E. Confirmatory proposal (35 unused IDs
+21-55, fresh copies, design frozen at db2f59c) stands; not run, awaiting the user's confirmation.
