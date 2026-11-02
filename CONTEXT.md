@@ -1897,7 +1897,7 @@ FPR, null LOO / validation (BH q 0.05 per subject; any = old families unchanged)
 | centroid | null | 0.010 / 0 | 0.013 / 0.10 | 0 / 0 | 0.023 / 0.10 | 0.023 / 0 | 0.043 / 0.10 |
 Facts:
 - Element sensitivity of the new families is 0.000 for all four perturbations, learned, both references, every edge.
-  Centroid: offset 0.012-0.036 vs baseline 0.012; no seg_radius or coverage discovery except edge 14 thin/displace
+  Centroid: offset 0.012-0.036 vs baseline 0.012; any_new discovery only at edge 14 in each perturbation
   (1/18). any_all sensitivity therefore equals the old any (removal learned 0.43 / 0.48).
 - The statistics do move at the target (learned, median over copies; baseline = unperturbed refit):
   seg_radius 1.30 mm -> remove 0.07, thin 0.60, displace3 0.69, displace5 0.52; offset 1.96 mm -> 2.77, 1.98, 2.23,
