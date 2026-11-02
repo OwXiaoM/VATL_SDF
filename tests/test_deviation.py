@@ -276,6 +276,10 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         for name in ('query_segrad_match_med', 'query_presence3', 'query_pop_p_segmatch_med'):
             self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
         self.assertEqual(dump['r3mm_tau0.1/train_segrad_match_q25'].shape[0], n_train)
+        fam_ = np.asarray(summary['apriori_families']['learned/r3mm_tau0.1'], int)
+        outside = np.setdiff1d(np.arange(len(dump['r3mm_tau0.1/pop_edges'])), fam_)
+        self.assertTrue(np.isnan(dump['r3mm_tau0.1/query_pop_p_segmatch_q25_apriori'][:, outside]).all())   # not tested outside F
+        np.testing.assert_array_equal(fam_, np.flatnonzero(dump['r3mm_tau0.1/pop_edge_probability'] >= 0.5))
         for name in ('query_edge_p', 'query_defects', 'query_radius_z', 'query_radius_allr_z', 'query_pop_p_radius_allr',
                      'query_reject_population_radius_allr', 'query_reject_radius_absz', 'query_reject_population_edge_surprise'):
             self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
@@ -306,6 +310,7 @@ class PerturbationPipelineTests(DeviationPipelineTests):
             detectability.main()
         g0 = json.loads((d / 'g0.json').read_text())
         self.assertIn('remove0', g0['g01']['learned']['segmatch_med']['labels'])
+        self.assertIn('segmatch_q25_apriori', g0['g01']['learned'])
         self.assertIn('sigma_fit', next(iter(g0['g02']['learned']['radius_absz']['elements'].values())))
         self.assertTrue(f0['targets']); self.assertIn('classes', next(iter(f0['targets'].values())))
         from analysis.deviation import plot_deviations
@@ -347,6 +352,10 @@ class PerturbationPipelineTests(DeviationPipelineTests):
             self.assertIn(fam, val['elements_bh_population']['r3mm_tau0.1']); self.assertIn(fam, val['elements_bh']['r3mm_tau0.1'])
         for key in ('population_segmatch_med', 'null_segmatch_q25', 'population_presence3', 'population_any_f', 'target_matched_after'):
             self.assertIn(key, row)
+        for fam in ('segmatch_q25_apriori', 'segmatch_med_apriori'):                                   # P1
+            self.assertIn(fam, val['elements_bh_population']['r3mm_tau0.1']); self.assertIn(fam, val['elements_bh']['r3mm_tau0.1'])
+            self.assertIn(f'population_{fam}', row); self.assertIn(f'null_{fam}', row)
+        self.assertIn('learned/r3mm_tau0.1', summary['apriori_families'])
         rep = summary['replicates']['learned/uniform']
         self.assertEqual(rep['valrep1']['fpr']['subjects'], 2)
         self.assertEqual(len(rep['transform_shift_mm']['valrep1']), 2)

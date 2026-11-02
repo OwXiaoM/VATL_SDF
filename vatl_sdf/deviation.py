@@ -55,6 +55,9 @@ farthest); -SDF (trilinear, native, unclipped) at those samples, median (segmatc
 Threshold-free presence (Step F2): presence3 = large (large-vessel presence) / small (not large, all-radius coverage >=
 edge_cover) / absent; population p = sum of smoothed category probabilities <= that of the observed category; null
 score -log pi_observed. Union any_f = segmatch_med, segmatch_q25, presence3.
+A-priori family (Stage P1; one factor = the multiplicity family): segmatch_q25_apriori / segmatch_med_apriori = the same
+element p-values restricted to the population edges with training p_e >= APRIORI_P (NaN elsewhere; BH within that
+family); families written to deviation.json 'apriori_families'.
 Replicate refits (--replicate-sets) and perturbed copies are scored as extra queries against the same null.
 """
 import argparse
@@ -454,6 +457,11 @@ def score_query(task):
             for name, stat in (('segmatch_med', 'segrad_match_med'), ('segmatch_q25', 'segrad_match_q25')):   # F1
                 dv = radius_deviation(seg[stat], seg_tr[stat], w)
                 elements[pop_key].update({f'{name}_absz': np.abs(dv[:, 1]), f'{name}_z': dv[:, 1], f'pop_p_{name}': dv[:, 3]})
+            fam_ap = np.asarray(pop['edge_probability']) >= APRIORI_P                                                 # P1
+            for name in ('segmatch_med', 'segmatch_q25'):
+                for part in ('_absz', '_z'):
+                    elements[pop_key][f'{name}_apriori{part}'] = np.where(fam_ap, elements[pop_key][f'{name}{part}'], np.nan)
+                elements[pop_key][f'pop_p_{name}_apriori'] = np.where(fam_ap, elements[pop_key][f'pop_p_{name}'], np.nan)
             cats = seg['presence3'].astype(int)                                                                       # F2
             pi = smoothed_categories(seg_tr['presence3'].astype(int), w)
             elements[pop_key].update({'presence3': cats, 'presence3_surprise': -np.log(pi[cats, np.arange(len(cats))]),
@@ -555,7 +563,9 @@ CONDPRESENT_FAMILIES = ('seg_radius_condpresent', 'coverage_condpresent')       
 ALLR_FAMILIES = ('radius_allr',)                                                 # node family (Step E1)
 NODE_FAMILIES = ('radius_absz',) + ALLR_FAMILIES
 F_FAMILIES = ('segmatch_med', 'segmatch_q25', 'presence3')                       # edge families (Steps F1, F2)
-ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + ALLR_FAMILIES + F_FAMILIES
+APRIORI_FAMILIES = ('segmatch_q25_apriori', 'segmatch_med_apriori')               # Stage P1
+APRIORI_P = 0.5
+ALL_FAMILIES = ELEMENT_FAMILIES + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + ALLR_FAMILIES + F_FAMILIES + APRIORI_FAMILIES
 FAMILY_GROUPS = (('any_family', ELEMENT_FAMILIES), ('any_new', NEW_FAMILIES), ('any_all', ELEMENT_FAMILIES + NEW_FAMILIES),
                  ('any_new_cond', COND_FAMILIES), ('any_new_condpresent', CONDPRESENT_FAMILIES),
                  ('any_allr', ELEMENT_FAMILIES + ALLR_FAMILIES), ('any_f', F_FAMILIES))
@@ -563,14 +573,16 @@ NULL_SCORE = {'seg_radius': 'seg_radius_absz', 'offset': 'offset', 'coverage': '
               'seg_radius_cond': 'seg_radius_cond_absz', 'coverage_cond': 'coverage_cond_deficit',
               'seg_radius_condpresent': 'seg_radius_condpresent_absz', 'coverage_condpresent': 'coverage_condpresent_deficit',
               'radius_allr': 'radius_allr_absz', 'segmatch_med': 'segmatch_med_absz', 'segmatch_q25': 'segmatch_q25_absz',
-              'presence3': 'presence3_surprise'}
+              'presence3': 'presence3_surprise', 'segmatch_q25_apriori': 'segmatch_q25_apriori_absz',
+              'segmatch_med_apriori': 'segmatch_med_apriori_absz'}
 NULL_CONDITIONED = set(COND_FAMILIES + CONDPRESENT_FAMILIES)  # null reference: null queries with the edge present
 POPULATION_P = {'edge_surprise': 'pop_p_edge', 'conn_graph': 'pop_p_conn_graph', 'conn_mask': 'pop_p_conn_mask',
                 'radius_absz': 'pop_p_radius', 'seg_radius': 'pop_p_seg_radius', 'offset': 'pop_p_offset',
                 'coverage': 'pop_p_coverage', 'seg_radius_cond': 'pop_p_seg_radius_cond', 'coverage_cond': 'pop_p_coverage_cond',
                 'seg_radius_condpresent': 'pop_p_seg_radius_condpresent', 'coverage_condpresent': 'pop_p_coverage_condpresent',
                 'radius_allr': 'pop_p_radius_allr', 'segmatch_med': 'pop_p_segmatch_med', 'segmatch_q25': 'pop_p_segmatch_q25',
-                'presence3': 'pop_p_presence3'}
+                'presence3': 'pop_p_presence3', 'segmatch_q25_apriori': 'pop_p_segmatch_q25_apriori',
+                'segmatch_med_apriori': 'pop_p_segmatch_med_apriori'}
 
 
 def null_pvalues(results, method, wname, keys_null, keys_eval, alpha, q):
@@ -903,7 +915,9 @@ def main():
                          'centroid': 'A = I; scaled radius = native radius',
                          'p_values': '(1 + #null >= s) / (1 + #null); null queries compared with the other null queries',
                          'maps': 'per-location maps saved for validation subjects (uniform weighting) only'},
-               'fpr': {}, 'score_medians': {}, 'defects': {}, 'ess': {}}
+               'fpr': {}, 'score_medians': {}, 'defects': {}, 'ess': {},
+               'apriori_families': {f'{m}/{k}': np.flatnonzero(np.asarray(pop['edge_probability']) >= APRIORI_P).tolist()
+                                    for m in populations for k, pop in populations[m].items()}}
     tables, pv_uniform = [], {}
     for m in a.methods:
         for wn, _ in weightings:
@@ -956,9 +970,11 @@ def main():
 
 SAVED_ELEMENTS = ('seg_radius', 'offset', 'coverage', 'floor', 'pop_p_radius', 'pop_p_seg_radius', 'pop_p_offset', 'pop_p_coverage',
                   'pop_p_seg_radius_cond', 'pop_p_coverage_cond', 'pop_p_radius_allr', 'radius_z', 'radius_allr_z', 'edge_p',
-                  'pop_p_segmatch_med', 'pop_p_segmatch_q25', 'pop_p_presence3', 'presence3', 'segmatch_med_z')
+                  'pop_p_segmatch_med', 'pop_p_segmatch_q25', 'pop_p_presence3', 'presence3', 'segmatch_med_z',
+                  'pop_p_segmatch_q25_apriori', 'pop_p_segmatch_med_apriori')
 DEFECT_CLASSES = ('radius_threshold', 'graph_defect', 'displaced', 'absent')     # query_defects codes 0-3, -1 = none
-REJECT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz', 'radius_allr', 'segmatch_med', 'segmatch_q25', 'presence3')
+REJECT_FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz', 'radius_allr', 'segmatch_med', 'segmatch_q25', 'presence3') \
+    + APRIORI_FAMILIES
 
 
 def ragged(arrays):
@@ -1151,7 +1167,7 @@ def detection_report(manifest, queries, results, pv, method, wname, keys_val, ke
             entry['per_edge'] = {int(e): {'copies': len(h), 'p_edge': float(h.p_edge.iloc[0]),
                                           **{f'{ref}_{f}': float(h[f'{ref}_{f}'].mean()) for ref in ('population', 'null')
                                              for f in ('any', 'any_new', 'any_all', 'any_new_cond', 'any_new_condpresent', 'any_allr', 'any_f')
-                                             + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + NODE_FAMILIES + F_FAMILIES},
+                                             + NEW_FAMILIES + COND_FAMILIES + CONDPRESENT_FAMILIES + NODE_FAMILIES + F_FAMILIES + APRIORI_FAMILIES},
                                           'subject': float(h.subject_detected.mean()), 'subject_ext': float(h.subject_detected_ext.mean()),
                                           'subject_cond': float(h.subject_detected_cond.mean())}
                                  for e, h in g.groupby('population_edge')}

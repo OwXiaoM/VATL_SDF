@@ -25,6 +25,10 @@ STATISTICS = {'radius_absz': ('query_node_radius', 'train_node_radius', 'query_p
               'radius_allr': ('query_node_radius_allr', 'train_node_radius_allr', 'query_pop_p_radius_allr', 'radius_allr', 'nodes'),
               'segmatch_med': ('query_segrad_match_med', 'train_segrad_match_med', 'query_pop_p_segmatch_med', 'segmatch_med', 'edges'),
               'segmatch_q25': ('query_segrad_match_q25', 'train_segrad_match_q25', 'query_pop_p_segmatch_q25', 'segmatch_q25', 'edges')}
+APRIORI = {'segmatch_q25_apriori': ('query_segrad_match_q25', 'train_segrad_match_q25', 'query_pop_p_segmatch_q25_apriori',
+                                    'segmatch_q25_apriori', 'edges'),
+           'segmatch_med_apriori': ('query_segrad_match_med', 'train_segrad_match_med', 'query_pop_p_segmatch_med_apriori',
+                                    'segmatch_med_apriori', 'edges')}   # Stage P1 (present when the dump has them)
 FRACTIONS = (0.5, 0.25, 0.)
 
 
@@ -74,10 +78,11 @@ def main():
         null = np.flatnonzero(sets == 'null')
         copies = d['sensitivity'][f'{method}/uniform']['copies']
         report['g01'][method], report['g02'][method] = {}, {}
-        for stat, (qa, ta, pa, fam, kind) in STATISTICS.items():
+        stats = dict(STATISTICS, **{k: v for k, v in APRIORI.items() if f'{pop_key}/{v[2]}' in z})
+        for stat, (qa, ta, pa, fam, kind) in stats.items():
             Q = g(qa)[..., 0] if qa == 'query_node_radius' else g(qa)
             T = g(ta)[..., 0] if ta == 'train_node_radius' else g(ta)
-            if stat == 'radius_absz':   # tested elements only (finite population p), as the family
+            if stat == 'radius_absz' or stat in APRIORI:   # tested elements only (finite population p), as the family
                 Q = np.where(np.isfinite(g(pa)), Q, np.nan)
             sig_pop = np.array([robust_sd(T[:, e]) for e in range(T.shape[1])])
             sig_null = np.array([robust_sd(Q[null, e]) for e in range(Q.shape[1])])
