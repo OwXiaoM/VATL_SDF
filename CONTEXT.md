@@ -2405,3 +2405,44 @@ G0.4 decision rules (fixed now), per statistic x label (learned, population refe
   proposed statistics with projected z and pre-registered criteria (not run).
 Jobs (CPU, frozen worktree): G0.1 + G0.2 (analysis/deviation/detectability.py, 4 CPU, QOS dev, ~5 min); G0.3 phantom
   (16 CPU, QOS dev, ~15 min).
+
+### Step G0.1 result: theoretical z vs BH threshold (job 47726, screening evidence; uniform, r3mm)
+
+Output: 20261102_detectability_G0/g0_detectability.json. Pre-registered usability rule (|predicted - observed| <= 0.05
+for >= 6 of 8 labels, both references): FAILED for every statistic and method except centroid radius_absz (6 / 8).
+Learned, population reference (predicted / observed detection; median max |z_theory|; z_needed):
+| label | radius_absz (z_n 2.64) | radius_allr (2.84) | segmatch_med (2.94) | segmatch_q25 (2.94) |
+|---|---|---|---|---|
+| thin0.5 | 0.02 / 0.02; 0.08 | 0.36 / 0.00; 1.98 | 0.47 / 0.02; 2.57 | 0.46 / 0.04; 2.70 |
+| thin0.3 | 0.02 / 0.04; 0.15 | 0.48 / 0.00; 2.51 | 0.51 / 0.04; 2.94 | 0.59 / 0.07; 3.49 |
+| removal | 0.53 / 0.43; 8.1 | 0.82 / 0.41; 8.9 | 0.92 / 0.33; 10.6 | 0.94 / 0.59; 9.2 |
+| stenosis0.5 | 0.17 / 0.16; 1.05 | 0.48 / 0.05; 2.59 | 0.68 / 0.01; 3.49 | 0.52 / 0.01; 2.97 |
+| stenosis0.3 | 0.19 / 0.18; 0.89 | 0.53 / 0.06; 3.09 | 0.75 / 0.04; 4.36 | 0.77 / 0.01; 3.86 |
+| displace2/3/5 | 0.12-0.07 / 0.01-0.05 | 0.13-0.31 / 0.02-0.05 | 0.05-0.31 / 0-0.04 | 0.15-0.42 / 0.02-0.08 |
+delta (median, IQR; mm), learned: radius_absz thin 0.00 (0.14-0.16), stenosis -0.11 to -0.14; radius_allr thin -0.21 / -0.23,
+stenosis -0.37; segmatch_med thin -0.28 / -0.30, stenosis -0.63 / -0.74; segmatch_q25 thin -0.57 / -0.71, stenosis
+-0.80 / -1.07. sigma_pop of the target elements 0.13-0.47 mm (segmatch 0.20-0.37).
+Key fact (explains predicted >> observed): the discrete p floor binds. Family size m (median finite elements per null
+query) and the smallest attainable p of ONE element against its reference:
+| statistic (learned) | m | q / m | population floor 2 / (n_ref + 1) | null floor 1 / (n_null + 1) |
+|---|---|---|---|---|
+| radius_absz | 6 | 0.0083 | 0.0053-0.021 (n 93-378) | >= 0.0047 |
+| radius_allr | 11 | 0.0045 | 0.0048-0.020 (n 101-420) | >= 0.0043 |
+| segmatch_med / q25 | 15 | 0.0033 | 0.0040-0.0046 (n 430-495) | >= 0.0034 (n <= 294) |
+For radius_allr and segmatch (and most radius_absz nodes) a single target element can never be a BH discovery, at any
+effect size, with either reference; detections need >= 2 elements of the family to be extreme in the same query
+(removal changes several nodes / edges). Centroid: the same (segmatch q / m 0.0029 vs floors >= 0.0036).
+So the z-based prediction is not usable for ranking designs as defined; the binding constraint for single-segment
+perturbations is the p-value resolution of the reference (n_ref ~ 300-500) relative to q / m, before effect size.
+
+### Step G0.2 result: variance decomposition (job 47726)
+
+Learned, target elements, sigma_total (null robust SD) / sigma_fit (pooled within-subject SD over 4 fits) / sigma_between:
+radius_absz 0.12-0.45 / 0.00-0.07 / 0.12-0.45; radius_allr 0.21-0.47 / 0.004-0.09 / 0.21-0.47; segmatch_med 0.23-0.29 /
+0.016-0.042 / 0.22-0.29; segmatch_q25 0.22-0.38 / 0.017-0.052 / 0.22-0.37. Fit noise is <= 7% of the variance on every
+target element (largest: radius_absz node 3, 0.067 vs 0.248); centroid sigma_fit = 0 by construction (confirmed).
+Projection (not a statistic; ignores the p floor above): with sigma_between halved, the z-rule would detect
+segmatch_q25 thin0.5 0.76, thin0.3 0.82, stenosis0.3 0.90; segmatch_med 0.60 / 0.66 / 0.88; radius_allr 0.58 / 0.59 /
+0.71; radius_absz 0.07 / 0.05 / 0.41 (thinning delta ~ 0). These projections are only reachable if the p floor is also
+removed (larger reference or a different multiplicity design).
+Facts: between-subject variance dominates fit noise everywhere; radius_absz does not see thinning at all (delta 0).
