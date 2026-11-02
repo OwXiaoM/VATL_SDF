@@ -779,7 +779,7 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47399 | E2 data: as 47346 with the dump's mask MIPs restricted to the subject FOV (statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_E2data | 0 | completed 32 min; FPR and sensitivity identical to 47346 |
 | 47400 | E2 figures v2 (cropped views, distinct colours) (afterok 47399) (CPU, QOS dev) | 4 CPU, frozen 2b4a33d | sdf_only/analysis/20261102_deviation_figures_v2 | 0 | completed 26 s; superseded by 47620 (summary legend clipped) |
 | 47620 | E2 figures v3 (summary legend kept inside the figure) from 20261102_deviation_E2data (CPU, QOS dev) | 4 CPU, frozen 4e63a64 | sdf_only/analysis/20261102_deviation_figures_v3 | 0 | completed 25 s |
-| 47671 | F0 diagnostics: segment_zero_diagnostics.py on the E2data dump (training subjects, trained transforms) (CPU, QOS dev) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_segment_zero_F0/f0_report.json | | submitted |
+| 47671 | F0 diagnostics: segment_zero_diagnostics.py on the E2data dump (training subjects, trained transforms) (CPU, QOS dev) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_segment_zero_F0/f0_report.json | 0 | completed 14 s |
 | 47672 | F deviation: as 47399 + segmatch_med / segmatch_q25 / presence3 (CPU, QOS normal) | 16 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F | | submitted |
 | 47673 | F segment diagnostic (segment_diagnostics.py, segments_match) (afterok 47672) (CPU, QOS dev) | 4 CPU, frozen db2f59c | sdf_only/analysis/20261102_deviation_F/d0_report.json | | submitted (dependency) |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
@@ -2290,3 +2290,24 @@ Forking paths / held-out IDs (checked 2026-11-02 against the YAML val list, ever
 Jobs (CPU only now): F0 diagnostics (16 CPU, QOS dev, ~10 min); F deviation (16 CPU, QOS normal, ~45 min; both
   manifests, replicates, --save-elements; serves F1 and F2 reports, old fields must equal the E2data run); F segment
   diagnostic and dose-response plots (CPU, QOS dev, minutes).
+
+### Step F0 result: why present training subjects have seg_radius ~ 0 (job 47671, screening evidence)
+
+Training subjects (497, trained transforms, learned primary population) with large-vessel presence and seg_radius
+<= 0.1 mm at the target edges; majority cause of the zero-valued interior samples; neighbour = no subject graph edge
+matched by the F1 rule; F1 value = median -SDF over the matched segment interior (mm):
+| edge | p_edge | present | flagged | no_point | clipped | other | neighbour | F1 value median (10-90%) |
+|---|---|---|---|---|---|---|---|---|
+| 4 | 0.92 | 457 | 24 | 20 | 4 | 0 | 0 | 1.61 (1.24-2.01) |
+| 5 | 0.57 | 285 | 17 | 17 | 0 | 0 | 0 | 1.37 (0.92-1.64) |
+| 6 | 0.77 | 381 | 19 | 10 | 6 | 3 | 0 | 1.84 (1.50-2.18) |
+| 7 | 0.52 | 259 | 2 | 0 | 2 | 0 | 0 | 1.21 (0.97-1.45) |
+| 11 | 0.62 | 310 | 2 | 2 | 0 | 0 | 0 | 1.61 (1.50-1.72) |
+| 14 | 0.91 | 450 | 11 | 11 | 0 | 0 | 0 | 1.72 (1.41-2.07) |
+Facts: 75 flagged subject-edge pairs: 60 no_point, 12 clipped, 3 other; 0 neighbour (every flagged subject has a
+matched segment). The F1 matched-segment value of all 75 is a normal radius (0.9-2.2 mm), i.e. segment matching
+changes every one of these cases from ~0 to a typical value.
+Hypothesis status: "presence from a neighbouring vessel" REFUTED (0/75); "nearest point outside the mask" minor
+(12/75). Dominant cause (fact): the subject's all-radius centreline is farther than r = 3 mm from the population path's
+INTERIOR samples while large-vessel coverage >= 50% is reached elsewhere along the path (ends), and the subject's
+own segment still matches by the 50% rule; hypothesis: local shape / alignment differences in the middle of the edge.
