@@ -11,7 +11,8 @@ Report (DEVIATION_DIR/d0_report.json):
             null queries with population p <= alpha;
   nodes     per copy (thin / stenosis / removal) and its unperturbed validation baseline: mapped target nodes tested
             by radius_absz (finite population p) vs floor-excluded (graph radius <= 0.801 mm) vs absent (no
-            large-vessel centreline within r) vs untested (finite radius, < 3 population subjects).
+            large-vessel centreline within r) vs untested (finite radius, < 3 population subjects);
+  nodes_allr the same for radius_allr (Step E1; absent = no all-radius graph point within r; no floor rule).
 Usage: python analysis/deviation/segment_diagnostics.py DEVIATION_DIR
 """
 import json
@@ -70,6 +71,32 @@ def distribution_summary(train, null, paired=None):
     return out
 
 
+def node_report(copies, row_of, radius, floor, pop_p):
+    """Per label: mapped target node categories (copy vs baseline), transitions, copies losing a tested node and the
+    radius change on nodes tested in both. radius (queries, nodes), floor (queries, nodes), pop_p (queries, nodes)."""
+    nodes = {}
+    for label in NODE_LABELS:
+        counts = {'copy': {}, 'baseline': {}}; transitions = {}; lost = 0; dr = []
+        sel = [c for c in copies if c['label'] == label]
+        for c in sel:
+            i, b = row_of[f"perturbed/{c['copy_id']}"], row_of[f"validation/{c['subject_id']}"]
+            nn = c['mapped_nodes']
+            cat = {}
+            for name, j in (('copy', i), ('baseline', b)):
+                cat[name] = node_categories(radius[j][nn][:, None], floor[j][nn], np.isfinite(pop_p[j][nn]))
+                for x in cat[name]:
+                    counts[name][x] = counts[name].get(x, 0) + 1
+            for x, y in zip(cat['baseline'], cat['copy']):
+                transitions[f'{x}->{y}'] = transitions.get(f'{x}->{y}', 0) + 1
+            lost += bool(((cat['baseline'] == 'tested') & (cat['copy'] != 'tested')).any())
+            both = (cat['baseline'] == 'tested') & (cat['copy'] == 'tested')
+            dr += list(radius[i][nn][both] - radius[b][nn][both])
+        nodes[label] = {'copies': len(sel), 'node_counts': counts, 'transitions': transitions,
+                        'copies_losing_a_tested_node': lost,
+                        'radius_change_tested_both_mm': quartiles(np.array(dr)) if dr else None}
+    return nodes
+
+
 def main():
     run = Path(sys.argv[1])
     d = json.loads((run / 'deviation.json').read_text())
@@ -77,7 +104,7 @@ def main():
     pop_key = f"r{d['settings']['radii_mm'][0]:g}mm_tau{d['settings']['tau']:g}"
     targets = {t['population_edge']: t['p_edge'] for t in d['perturbations']['targets']}
     report = {'tolerances': {'seg_radius_mm': SEG_TOL_MM, 'coverage': COVER_TOL}, 'population': pop_key, 'alpha': alpha, 'q': q,
-              'floor': {}, 'offset': {}, 'nodes': {}}
+              'floor': {}, 'offset': {}, 'nodes': {}, 'nodes_allr': {}}
     for method in ('learned', 'centroid'):
         z = np.load(run / f'elements_{method}.npz', allow_pickle=False)
         keys = list(z['query_keys']); sets = z['query_sets']; subjects = z['query_subjects']
@@ -127,29 +154,11 @@ def main():
                           'median_of_edge_paired_shift_iqr': float(np.nanmedian([quartiles(shift[:, k])[1] or 0. for k in range(shift.shape[1])])),
                           'null_element_fraction_pop_p_le_alpha': float(np.nanmean(p_off <= alpha)),
                           'train_median_of_edge_median': float(np.nanmedian(med_tr)), 'null_median_of_edge_median': float(np.nanmedian(med_null))}}
-        # node-radius test on the mapped target nodes: copy vs unperturbed baseline (same subject)
-        nodes = {}
-        for label in NODE_LABELS:
-            counts = {'copy': {}, 'baseline': {}}; transitions = {}; lost = 0; dr = []
-            sel = [c for c in copies if c['label'] == label]
-            for c in sel:
-                i, b = row_of[f"perturbed/{c['copy_id']}"], row_of[f"validation/{c['subject_id']}"]
-                nn = c['mapped_nodes']
-                cat = {}
-                for name, j in (('copy', i), ('baseline', b)):
-                    nr = g('query_node_radius')[j][nn]
-                    cat[name] = node_categories(nr, g('query_floor')[j][nn], np.isfinite(g('query_pop_p_radius')[j][nn]))
-                    for x in cat[name]:
-                        counts[name][x] = counts[name].get(x, 0) + 1
-                for x, y in zip(cat['baseline'], cat['copy']):
-                    transitions[f'{x}->{y}'] = transitions.get(f'{x}->{y}', 0) + 1
-                lost += bool(((cat['baseline'] == 'tested') & (cat['copy'] != 'tested')).any())
-                both = (cat['baseline'] == 'tested') & (cat['copy'] == 'tested')
-                dr += list(g('query_node_radius')[i][nn][both, 0] - g('query_node_radius')[b][nn][both, 0])
-            nodes[label] = {'copies': len(sel), 'node_counts': counts, 'transitions': transitions,
-                            'copies_losing_a_tested_node': lost,
-                            'sdf_radius_change_tested_both_mm': quartiles(np.array(dr)) if dr else None}
-        report['nodes'][method] = nodes
+        # node-radius tests on the mapped target nodes: copy vs unperturbed baseline (same subject)
+        report['nodes'][method] = node_report(copies, row_of, g('query_node_radius')[:, :, 0], g('query_floor'), g('query_pop_p_radius'))
+        if f'{pop_key}/query_node_radius_allr' in z:
+            report['nodes_allr'][method] = node_report(copies, row_of, g('query_node_radius_allr'),
+                                                       np.zeros_like(g('query_floor')), g('query_pop_p_radius_allr'))
     (run / 'd0_report.json').write_text(json.dumps(report, indent=1))
     print(json.dumps(report, indent=1))
 

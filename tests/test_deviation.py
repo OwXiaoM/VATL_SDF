@@ -271,6 +271,17 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         # code fact used by D0/D1: presence == (coverage >= edge_cover) on the same points and radius
         cov, pres = dump['r3mm_tau0.1/query_coverage'], dump['r3mm_tau0.1/query_presence']
         np.testing.assert_array_equal(pres.astype(bool), cov >= 0.5)
+        self.assertEqual(dump['r3mm_tau0.1/query_node_radius_allr'].shape, dump['r3mm_tau0.1/query_node_radius'].shape[:2])
+        self.assertEqual(dump['r3mm_tau0.1/train_node_radius_allr'].shape[0], n_train)
+        for name in ('query_edge_p', 'query_defects', 'query_radius_z', 'query_radius_allr_z', 'query_pop_p_radius_allr',
+                     'query_reject_population_radius_allr', 'query_reject_radius_absz', 'query_reject_population_edge_surprise'):
+            self.assertEqual(dump[f'r3mm_tau0.1/{name}'].shape[0], len(keys))
+        pop_edges = dump['r3mm_tau0.1/pop_edges']
+        self.assertEqual(len(dump['r3mm_tau0.1/pop_path_offsets']), len(pop_edges) + 1)
+        geo = list(dump['geometry_keys'])
+        self.assertIn('validation/s6', geo); self.assertIn('validation/s7', geo)
+        self.assertEqual(len(dump['geometry_large_offsets']), len(geo) + 1)
+        self.assertEqual(dump['geometry_mip_axial'].shape[0], len(geo))
         self.assertTrue((out / 'elements_centroid.npz').is_file())
         self.assertFalse((out / 'elements_decoder.npz').exists())
         from analysis.deviation import segment_diagnostics
@@ -280,6 +291,14 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         self.assertEqual(set(d0['nodes']['learned']['remove0']['node_counts']), {'copy', 'baseline'})
         self.assertIn('all_edges', d0['offset']['centroid'])
         self.assertAlmostEqual(d0['offset']['centroid']['all_edges']['median_of_edge_median_shift'], 0.)   # centroid: no refit
+        self.assertEqual(set(d0['nodes_allr']['learned']['remove0']['node_counts']), {'copy', 'baseline'})   # E1 node diagnostic
+        from analysis.deviation import plot_deviations
+        figs = d / 'figures'
+        with mock.patch.object(sys, 'argv', ['x', str(out), str(figs)]):
+            plot_deviations.main()
+        for name in ('subject_s6.png', 'subject_s7.png', 'montage.png', 'absent_expected_summary.png', 'index.html'):
+            self.assertTrue((figs / name).is_file(), name)
+        self.assertIn('data:image/png;base64', (figs / 'index.html').read_text())
         self.assertEqual(summary['perturbations']['copies_scored'], min(3, len(m['copies'])))
         sens = summary['sensitivity']['learned/uniform']
         self.assertIn('remove0', sens['by_perturbation'])
@@ -304,6 +323,10 @@ class PerturbationPipelineTests(DeviationPipelineTests):
         self.assertIn('subject_detection_cond', sens['by_perturbation']['remove0'])
         self.assertIn('population_any_new_cond', sens['by_perturbation']['remove0']['per_edge'][str(row['population_edge'])])
         self.assertEqual(row['population_any_all'], row['population_any'] or row['population_any_new'])   # any_all: old + Step B only
+        self.assertIn('radius_allr', val['elements_bh_population']['r3mm_tau0.1']); self.assertIn('any_allr', val['elements_bh']['r3mm_tau0.1'])
+        for key in ('population_radius_allr', 'null_radius_allr', 'population_any_allr', 'baseline_population_radius_allr'):
+            self.assertIn(key, row)
+        self.assertIn('population_radius_allr', sens['by_perturbation']['remove0']['per_edge'][str(row['population_edge'])])
         rep = summary['replicates']['learned/uniform']
         self.assertEqual(rep['valrep1']['fpr']['subjects'], 2)
         self.assertEqual(len(rep['transform_shift_mm']['valrep1']), 2)
@@ -415,7 +438,7 @@ class DeviationStatisticsTests(unittest.TestCase):
             graph = load_graph(str(Path(t) / 'g.pkl'))
         centre = np.zeros(3)
         pop = {'edge_points_mm': [np.c_[np.arange(15., 26.), np.full(11, 12.), np.full(11, 12.)]], 'edges': [(0, 1)],
-               'nodes_mm': np.array([[15., 12., 12.], [25., 12., 12.]]), 'radius_mm': 3.}
+               'nodes_mm': np.array([[15., 12., 12.], [25., 12., 12.], [20., 12., 12.], [100., 100., 100.]]), 'radius_mm': 3.}
 
         def stats(s, gr):
             large = edge_samples(gr['pos'], gr['edges'][(gr['radius'][gr['edges']] >= 1.2).all(1)], 0.4)[0]
@@ -424,14 +447,18 @@ class DeviationStatisticsTests(unittest.TestCase):
         base = stats(sdf, graph)
         self.assertAlmostEqual(base['seg_radius'][0], 2., places=1)
         self.assertAlmostEqual(base['offset'][0], 0., places=6); self.assertAlmostEqual(base['coverage'][0], 1.)
+        self.assertAlmostEqual(base['node_radius_allr'][2], 2., places=1)   # all-radius node radius (E1)
+        self.assertTrue(np.isnan(base['node_radius_allr'][3]))               # no graph point within r -> NaN
         edges = [int(k) for k, (a, b) in enumerate(graph['edges']) if 10 <= a <= 20 and 10 <= b <= 20]
         thin = stats(*perturb(sdf, affine, graph, edges, 'thin'))
         self.assertAlmostEqual(thin['seg_radius'][0], 1., places=1)
+        self.assertAlmostEqual(thin['node_radius_allr'][2], 1., places=1)   # thinned points still contribute
         self.assertAlmostEqual(thin['offset'][0], 0., places=6)            # all-radius centreline unmoved
         self.assertLess(thin['coverage'][0], 0.8)                          # radius 1 < 1.2: interior off the large-vessel centreline
         moved = stats(*perturb(sdf, affine, graph, edges, 'displace', 3., [0., 0., 1.]))
         self.assertGreater(moved['offset'][0], 2.)
         gone = stats(*perturb(sdf, affine, graph, edges, 'remove'))
+        self.assertLess(gone['node_radius_allr'][2], 1.)                     # unclipped: remaining points outside the vessel
         self.assertLess(gone['seg_radius'][0], 0.5); self.assertLess(gone['coverage'][0], 0.8)   # (small branch root keeps offset low)
 
     def test_conditional_segment_p(self):
