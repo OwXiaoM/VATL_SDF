@@ -27,8 +27,9 @@ from matplotlib.lines import Line2D
 
 DEFECTS = ('radius_threshold', 'graph_defect', 'displaced', 'absent')   # codes 0-3 in query_defects
 STATUS_COLOUR = {'expected': '#9a9a96', 'unexpected': '#2a78d6', 'radius_threshold': '#eda100', 'graph_defect': '#e34948',
-                 'displaced': '#eb6834', 'absent': '#6250d6'}
-LARGE_COLOUR, ALL_COLOUR = '#1baf7a', '#e87ba4'
+                 'displaced': '#6250d6', 'absent': '#e87ba4'}
+LARGE_COLOUR, ALL_COLOUR = '#1baf7a', '#9085e9'
+CROP_MARGIN_MM = 15.   # views cropped to the population graph's bounding box plus this margin
 Z_LIMIT = 4.
 VIEWS = (('axial', (0, 1), 2), ('coronal', (0, 2), 1), ('sagittal', (1, 2), 0))   # name, plotted axes, MIP axis
 FAMILIES = ('edge_surprise', 'conn_graph', 'conn_mask', 'radius_absz', 'radius_allr')
@@ -48,6 +49,12 @@ class Dump:
         self.nodes = self.z[f'{pop_key}/pop_nodes_mm']; self.edges = self.z[f'{pop_key}/pop_edges']
         affine, shape = self.z['grid_affine'], self.z['grid_shape']
         self.extent = {a: (affine[a, 3], affine[a, 3] + shape[a] * affine[a, a]) for a in range(3)}
+        allp = np.vstack(self.paths + [self.nodes])
+        self.crop = {a: (max(allp[:, a].min() - CROP_MARGIN_MM, self.extent[a][0]), min(allp[:, a].max() + CROP_MARGIN_MM, self.extent[a][1]))
+                     for a in range(3)}
+
+    def in_crop(self, pts):
+        return np.all([(pts[:, a] >= self.crop[a][0]) & (pts[:, a] <= self.crop[a][1]) for a in range(3)], axis=0)
 
     def q(self, name, key):
         return self.z[f'{self.pop}/query_{name}'][self.row[key]]
@@ -81,7 +88,7 @@ class Dump:
 def draw_projection(ax, d, key, view, highlight=None, annotate=True):
     name, (i, j), axis = view
     mip = d.mip(key, name).astype(float)
-    ax.imshow(mip.T, origin='lower', cmap='Greys', alpha=0.22, vmin=0, vmax=1, interpolation='nearest',
+    ax.imshow(mip.T, origin='lower', cmap='Greys', alpha=0.13, vmin=0, vmax=1, interpolation='nearest',
               extent=[*d.extent[i], *d.extent[j]])
     status, pe = d.status(key), d.q('edge_p', key)
     for k, path in enumerate(d.paths):
@@ -99,8 +106,9 @@ def draw_projection(ax, d, key, view, highlight=None, annotate=True):
         for k in highlight:
             ax.plot(d.paths[k][:, i], d.paths[k][:, j], color='#0b0b0b', lw=4.5, alpha=0.25, zorder=1.5)
     large, alll = d.lines(key, 'large'), d.lines(key, 'all')
-    ax.scatter(alll[:, i], alll[:, j], s=0.15, color=ALL_COLOUR, alpha=0.5, lw=0, zorder=3, rasterized=True)
-    ax.scatter(large[:, i], large[:, j], s=0.3, color=LARGE_COLOUR, alpha=0.8, lw=0, zorder=3.5, rasterized=True)
+    large, alll = large[d.in_crop(large)], alll[d.in_crop(alll)]
+    ax.scatter(alll[:, i], alll[:, j], s=0.6, color=ALL_COLOUR, alpha=0.45, lw=0, zorder=1.8, rasterized=True)
+    ax.scatter(large[:, i], large[:, j], s=1.2, color=LARGE_COLOUR, alpha=0.8, lw=0, zorder=3.5, rasterized=True)
     z = d.q('radius_z', key)
     ok = np.isfinite(z)
     sc = ax.scatter(d.nodes[ok, i], d.nodes[ok, j], c=np.clip(z[ok], -Z_LIMIT, Z_LIMIT), cmap='RdBu_r', vmin=-Z_LIMIT, vmax=Z_LIMIT,
@@ -120,7 +128,7 @@ def draw_projection(ax, d, key, view, highlight=None, annotate=True):
                 mk = 's' if ref == 'population' else 'x'
             ax.scatter(pts[:, i], pts[:, j], s=size, marker=mk, facecolors='none' if mk in 'osD' else '#0b0b0b',
                        edgecolors='#0b0b0b', linewidths=1.1, zorder=5)
-    ax.set_xlim(*d.extent[i]); ax.set_ylim(*d.extent[j]); ax.set_aspect('equal')
+    ax.set_xlim(*d.crop[i]); ax.set_ylim(*d.crop[j]); ax.set_aspect('equal')
     ax.set_title(name, fontsize=9); ax.set_xticks([]); ax.set_yticks([])
     for s_ in ax.spines.values():
         s_.set_visible(False)
@@ -210,8 +218,8 @@ def absent_summary(d, val_keys, null_keys, out):
     ax.set_xticks(x); ax.set_xticklabels([f'e{e}\n{d.z[f"{d.pop}/pop_edge_probability"][e]:.2f}' for e in show], fontsize=6)
     ax.set_xlabel('population edge (p_e)', fontsize=8); ax.set_ylabel('fraction absent but expected', fontsize=8)
     ax.spines[['top', 'right']].set_visible(False); ax.grid(axis='y', alpha=0.25, lw=0.5)
-    ax.legend(fontsize=6, frameon=False, ncol=3, loc='upper left')
-    ax.set_title(f'Absent-but-expected edges: {len(val_keys)} validation subjects vs null 300 (learned, uniform; screening evidence)', fontsize=9)
+    ax.legend(fontsize=6, frameon=False, ncol=5, loc='upper center', bbox_to_anchor=(0.5, -0.22))
+    ax.set_title(f'Absent-but-expected edges: {len(val_keys)} validation subjects vs null {len(null_keys)}\n(learned, uniform; screening evidence)', fontsize=9)
     fig.tight_layout(); fig.savefig(out, dpi=130); plt.close(fig)
 
 

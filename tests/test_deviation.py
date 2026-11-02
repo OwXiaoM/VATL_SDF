@@ -485,6 +485,14 @@ class DeviationStatisticsTests(unittest.TestCase):
         np.testing.assert_allclose(element_null_p(np.array([5.]), nulls), [2 / 5])
         np.testing.assert_allclose(element_null_p(np.array([5.]), nulls, present), [1 / 4])   # absent null subject left out
 
+    def test_masked_mips(self):
+        from vatl_sdf.deviation import masked_mips
+        y = np.zeros((4, 3, 2), bool); y[3, :, :] = True; y[0, 0, 0] = True       # x = 3 slab: extrapolated outside the FOV
+        valid = np.ones_like(y); valid[3] = False
+        mips = masked_mips(np.packbits(y.ravel()), np.packbits(valid.ravel()), y.shape)
+        self.assertEqual(mips['axial'].shape, (4, 3)); self.assertEqual(mips['sagittal'].shape, (3, 2))
+        self.assertEqual(int(mips['axial'].sum()), 1); self.assertTrue(mips['axial'][0, 0])
+
     def test_transform_shift(self):
         from vatl_sdf.deviation import transform_shift
         rng = np.random.default_rng(0)

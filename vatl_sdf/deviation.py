@@ -936,11 +936,18 @@ def save_elements(path, method, train_ids, keys, queries, results, pv=None, geom
     m_ = [queries[k]['methods'][method] for k in geometry_keys]
     arrays['geometry_large'], arrays['geometry_large_offsets'] = ragged([m['lines'] for m in m_])
     arrays['geometry_all'], arrays['geometry_all_offsets'] = ragged([m['all_lines'] for m in m_])
-    n_vox = int(np.prod(STATE['shape']))
-    masks = [np.unpackbits(m['y'], count=n_vox).reshape(STATE['shape']).astype(bool) for m in m_]
-    for axis, name in ((2, 'axial'), (1, 'coronal'), (0, 'sagittal')):
-        arrays[f'geometry_mip_{name}'] = np.array([y.max(axis) for y in masks], np.uint8) if masks else np.zeros((0, 1, 1), np.uint8)
+    mips = [masked_mips(m['y'], m['valid'], STATE['shape']) for m in m_]
+    for name in ('axial', 'coronal', 'sagittal'):
+        arrays[f'geometry_mip_{name}'] = np.array([x[name] for x in mips], np.uint8) if mips else np.zeros((0, 1, 1), np.uint8)
     np.savez_compressed(path, **arrays)
+
+
+def masked_mips(y_packed, valid_packed, shape):
+    """Axial / coronal / sagittal MIPs of the mapped vessel label inside the subject's field of view (template grid;
+    outside the FOV the label is nearest-neighbour extrapolation)."""
+    n = int(np.prod(shape))
+    y = (np.unpackbits(y_packed, count=n) & np.unpackbits(valid_packed, count=n)).reshape(shape).astype(bool)
+    return {'axial': y.max(2), 'coronal': y.max(1), 'sagittal': y.max(0)}
 
 
 def example_copies(manifest, keys_pert, validation_order):
