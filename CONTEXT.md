@@ -2354,3 +2354,51 @@ smallest presence3 p over all null elements is 0.0047. Removal mostly yields 'sm
 equally frequent in the population. Conclusion (screening): option (a) replaces the absence floor by a 'small' floor.
 Forking paths unchanged: same 664 copies and 20 validation subjects as A-E. Confirmatory proposal (35 unused IDs
 21-55, fresh copies, design frozen at db2f59c) stands; not run, awaiting the user's confirmation.
+
+## Stage G0: detectability-ceiling diagnostics (user request 2026-11-02; no statistic added or changed)
+
+Reuses the F run's dumps (20261102_deviation_F/elements_learned.npz, elements_centroid.npz) and deviation.json; same
+model, populations, sets, null 300, alpha = q = 0.05, uniform. sigma and all reference quantities from training / null
+subjects only. Same 20 validation subjects and 664 copies as A-F (forking paths): any design chosen from G0 must be
+pre-registered and confirmed on validation IDs 21-55 with fresh copies (not run without the user's confirmation).
+
+### Step 0: plan (2026-11-02, before any G0 job)
+
+Statistics: radius_absz (node; value = large-vessel node radius sdf, tested = finite population p), radius_allr
+(node), segmatch_med and segmatch_q25 (edge); learned and centroid; target elements of a copy = its mapped_nodes
+(node statistics) / mapped_edges (edge statistics) from deviation.json.
+G0.1 per copy and target element: delta = copy value - unperturbed validation value of the same element (both finite);
+  sigma_pop = robust SD (IQR / 1.349) over training subjects (trained transforms), sigma_null = robust SD over the 300
+  null queries; z_theory = delta / sigma; per copy |z_theory| = max over its target elements. m = number of finite
+  elements of the family per query (median over null queries); z_needed = Phi^-1(1 - q / (2 m)) (one BH discovery,
+  two-sided); discrete floor = 2 / (n_ref + 1) (n_ref = finite reference values of the element; binds if > q / m).
+  Predicted detection = fraction of copies with max |z_theory| >= z_needed; observed = BH flags on the target
+  elements (population- / null-referenced, from the dump). Agreement reported per label; the prediction is called
+  usable for ranking designs only if |predicted - observed| <= 0.05 for >= 6 of the 8 labels (both references).
+  Also: delta median / IQR per label and target edge; sigma per target element.
+G0.2 (learned): sigma_fit = pooled within-subject SD over the 4 fits (validation + valrep1-3) per target element;
+  sigma_total = sigma_null; sigma_between = sqrt(max(sigma_total^2 - sigma_fit^2, 0)). Centroid: sigma_fit = 0 by
+  construction (checked). Projection (not a statistic): sigma'(f) = sqrt(sigma_fit^2 + (f sigma_between)^2) for
+  f = 0.5, 0.25, 0; projected detection = fraction of copies with max |delta| / sigma'(f) >= z_needed.
+G0.3 phantom (in memory, nothing written to data directories; analysis/deviation/phantom.py): straight and gently curved
+  (circular arc, curvature radius 30 mm) tubes of length 20 mm, radius 0.8-3.0 mm step 0.2, random orientation and
+  sub-voxel offset, on the real grid spacing 0.9375 x 0.9375 x 0.8 mm (read from a training SDF header); vessel mask =
+  voxel centres within the radius profile of the centreline; SDF = vatl_sdf.preprocess_sdf.signed_distance (voxel-
+  centre EDT difference; matches the real files: smallest |SDF| = one voxel spacing on both sides, checked on
+  IXI633); graph = chain of nodes every 1 mm on the centreline with the true radius; measurement = trilinear -SDF at
+  the 0.4 mm graph samples (same functions): segmatch_med / q25 via matched_interior against the true centreline,
+  node rules = median over samples within 3 mm of the middle node (radius_absz additionally requires both edge
+  endpoint radii >= 1.2 mm; NaN fraction reported). Per true radius (30 random placements each): bias, SD, and the
+  slope of measured vs true change for radius factors 0.5, 0.3 and the 4 mm stenosis profile (perturbation.
+  stenosis_profile at the tube middle; true change = the same summary of the true radius profile at the samples).
+  The phantom is an optimistic lower bound (no bifurcations, no segmentation noise, ideal perturbation without the
+  attachment restore). CPU test first: axis-aligned tube radius 2 mm recovered within 0.6 mm at the real spacing and
+  0.3 mm at 0.25 mm spacing; thinning slope near 1 on the fine grid.
+G0.4 decision rules (fixed now), per statistic x label (learned, population reference; target radius = the copies'
+  manifest segment radius, median 1.5-2 mm): phantom slope s and phantom SD at that radius; delta_phantom = s x true
+  change; dilution if |median delta| < 0.5 |delta_phantom| and s >= 0.7; resolution limit if s < 0.5 or phantom SD
+  >= 0.5 sigma_pop; between-subject variance if |median delta| >= 0.5 |delta_phantom|, sigma_between >= 0.8 sigma_total
+  and median |z_theory| < z_needed; unclear otherwise (several may apply: listed in this order). Then at most two
+  proposed statistics with projected z and pre-registered criteria (not run).
+Jobs (CPU, frozen worktree): G0.1 + G0.2 (analysis/deviation/detectability.py, 4 CPU, QOS dev, ~5 min); G0.3 phantom
+  (16 CPU, QOS dev, ~15 min).
