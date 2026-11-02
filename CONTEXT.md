@@ -770,9 +770,9 @@ subjects (YAML order), seed 42, 40,000 steps (40 epochs), then
 | 47163-47196 | Step C copy refits (34 chunks of 10, set perturbed_c, afterok 47162) | 34 x 1 L40S, QOS normal/dev, frozen 5db875c | sdf_only/analysis/20261102_perturbation_c/refit | 0 | completed 3-13 min each |
 | 47197 | Deviation A+B: null 300, 332 old copies, replicates valrep1-3, segment families (afterok 47156-47161) (CPU) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_AB | 0 | completed 30 min; old families identical to 47117 (0 diffs) |
 | 47203 | Deviation C: null 300, both manifests (664 copies), replicates valrep1-3, old + segment families (CPU, QOS normal) | 16 CPU, frozen cc71332 | sdf_only/analysis/20261102_deviation_C | 0 | completed 34 min; old copies identical to 47197 (0 diffs) |
-| 47311 | D0 deviation: as 47203 + --save-elements (diagnostics dump; statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0 | | submitted |
-| 47312 | D0 diagnostics: segment_diagnostics.py -> d0_report.json (afterok 47311) (CPU, QOS dev) | 4 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0/d0_report.json | | submitted (dependency) |
-| 47315 | D1 deviation: as 47311 + presence-conditioned segment families (seg_radius_cond, coverage_cond, condpresent rows), conditional-extended min-p (CPU, QOS normal) | 16 CPU, frozen c453771 | sdf_only/analysis/20261102_deviation_D1 | | submitted |
+| 47311 | D0 deviation: as 47203 + --save-elements (diagnostics dump; statistics unchanged) (CPU, QOS normal) | 16 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0 | 0 | completed 40 min; FPR and sensitivity identical to 47203 |
+| 47312 | D0 diagnostics: segment_diagnostics.py -> d0_report.json (afterok 47311) (CPU, QOS dev) | 4 CPU, frozen 260d5d0 | sdf_only/analysis/20261102_deviation_D0/d0_report.json | 0 | completed 9 s |
+| 47315 | D1 deviation: as 47311 + presence-conditioned segment families (seg_radius_cond, coverage_cond, condpresent rows), conditional-extended min-p (CPU, QOS normal) | 16 CPU, frozen c453771 | sdf_only/analysis/20261102_deviation_D1 | 0 | completed 31 min |
 | 47116 | Deviation + perturbation sensitivity, null 100 (afterok perturbed refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null100 | 0 | completed (22 min; see sensitivity results) |
 | 47117 | Deviation + perturbation sensitivity, null 300 (deviation_sets_null300.json; afterok perturbed + null-extension refits) (CPU) | 16 CPU, frozen 007f163 | sdf_only/analysis/20261101_deviation_perturb_null300 | 0 | completed (29 min; see null 100 vs 300) |
 | 46992 | Occupancy atlas recalibration on full A4 final (smoothing sigma 0-3 mm x none/platt/isotonic; fitted on the 6 refitted training subjects, reported on the 5 test subjects) (CPU, QOS dev) | 16 CPU, frozen 140138d | sdf_only/analysis/20261101_a4full_atlas_calibration | 0 | COMPLETED 2 min |
@@ -2017,3 +2017,41 @@ D3 (only if D0 supports the floor hypothesis): radius_absz_floorkeep = radius_ab
   observed exclusion mechanism is reported with a proposal instead.
 Jobs (CPU only, frozen worktrees): D0 deviation (16 CPU, ~40 min) + diagnostics (4 CPU, QOS dev, ~5 min, afterok);
 D1 deviation (16 CPU, ~45 min; also serves D2's regression) after D1 code and tests.
+
+### Step D0 result: diagnostics (jobs 47311 / 47312, screening evidence; uniform, r3mm)
+
+Regression: all FPRs and sensitivities of 47311 identical to 47203. Report: 20261102_deviation_D0/d0_report.json.
+1) Floor of the population p (seg_radius, coverage). Learned family size m = 16 edges -> BH rank-1 threshold
+   q/m = 0.0031 (centroid m = 22, 0.0023). Training subjects (497, trained transforms), learned target edges:
+   | edge | p_edge | 1 - presence | seg_radius <= 0.1 mm | coverage <= 0.05 | min pop p seg_radius (v = 0) | min pop p coverage (v = 0) |
+   |---|---|---|---|---|---|---|
+   | 4 | 0.92 | 0.08 | 0.11 | 0.010 | 0.22 | 0.012 |
+   | 5 | 0.57 | 0.43 | 0.24 | 0.062 | 0.47 | 0.064 |
+   | 6 | 0.77 | 0.23 | 0.26 | 0.145 | 0.51 | 0.147 |
+   | 7 | 0.52 | 0.48 | 0.22 | 0.239 | 0.41 | 0.241 |
+   | 11 | 0.62 | 0.38 | 0.27 | 0.070 | 0.52 | 0.072 |
+   | 14 | 0.91 | 0.09 | 0.10 | 0.008 | 0.20 | 0.010 |
+   (exact zeros nearly equal to the tolerance counts; target 6 also maps to learned edge 1 with 0.70 absent, min p 1.0.)
+   Observed smallest target p of thin0.3 / removal copies 0.12-0.52 = the floor. Centroid floors are higher (mapped
+   edges absent in 53-85% of training subjects). Hypothesis SUPPORTED: no seg_radius or coverage p can reach the BH
+   threshold; seg_radius ~0 frequency tracks 1 - presence (lower where small-radius graph remains), coverage ~0 is
+   rarer (partial coverage 0 < c < 0.5 is common) but its floor 0.008-0.24 is still above 0.0031.
+2) Offset (paired: the 300 null subjects under trained vs refitted transforms). Learned: null median offset > training
+   median on 15/16 edges; median per-edge paired shift +0.09 mm, but the per-subject paired shift has IQR 0.94 mm
+   (refit spread, not only a shift); target edges: shift +0.02 to +0.14 mm, null IQR >= training IQR on most; null
+   element fraction with population p <= 0.05: 0.087 (targets 0.02-0.11). Centroid: paired shift exactly 0 (no fit),
+   null element fraction 0.045. Hypothesis SUPPORTED (trained-vs-refitted transform mismatch inflates the learned
+   upper tail; mostly through added spread).
+   D2 variant check: population tail p of the offset against the null refits (LOO, uniform) equals the null-referenced
+   empirical p exactly (1044 queries x 16 edges, max |diff| 0).
+3) Node radius on the mapped target nodes (learned; 83 copies each; baseline = same pair unperturbed): floor-excluded
+   nodes = 0 in every copy and baseline (code fact confirmed). Tested -> absent (no large-vessel point within r):
+   thin0.5 80/151 tested baseline nodes (64/83 copies lose >= 1 tested node), thin0.3 76/151 (63), removal 84/151
+   (64), stenosis0.5 17/151 (15), stenosis0.3 21/151 (19). On nodes tested in both, SDF radius change (median, IQR):
+   thin 0.00 (0.14-0.16), stenosis -0.14 / -0.11 (0.37-0.38), removal -3.65 (2.0; remaining graph points near the node
+   now lie outside the mask). Centroid: same pattern (thin 32/109 lost, stenosis 17-18, removal 36).
+   Radius-floor hypothesis REFUTED (no floor exclusions). Replacement fact: thinning removes the thinned edge from the
+   large-vessel selection (endpoint radius < 1.2 mm), so its points no longer contribute; the target nodes become
+   absent or are measured on the neighbouring unthinned branches (radius unchanged). Removal is detected through
+   remaining graph points that now lie outside the vessel mask; stenosis keeps most nodes tested and lowers their radius.
+   Per the plan, D3 (floor-keep variant) is not run.
