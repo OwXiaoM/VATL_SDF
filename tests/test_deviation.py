@@ -301,6 +301,12 @@ class PerturbationPipelineTests(DeviationPipelineTests):
                                              '--workers', '1', '--max-seg-radius', '1e9', '--any-presence']):
             segment_zero_diagnostics.main()
         f0 = json.loads((d / 'f0.json').read_text())
+        from analysis.deviation import detectability
+        with mock.patch.object(sys, 'argv', ['x', str(out), '--output', str(d / 'g0.json')]):
+            detectability.main()
+        g0 = json.loads((d / 'g0.json').read_text())
+        self.assertIn('remove0', g0['g01']['learned']['segmatch_med']['labels'])
+        self.assertIn('sigma_fit', next(iter(g0['g02']['learned']['radius_absz']['elements'].values())))
         self.assertTrue(f0['targets']); self.assertIn('classes', next(iter(f0['targets'].values())))
         from analysis.deviation import plot_deviations
         figs = d / 'figures'
@@ -351,6 +357,54 @@ class PerturbationPipelineTests(DeviationPipelineTests):
 
 def scores_sets(out):
     return pd.read_csv(out / 'scores.tsv', sep='\t', keep_default_na=False, na_values=['']).set.unique()
+
+
+class DetectabilityTests(unittest.TestCase):
+    """analysis/deviation/detectability.py and phantom.py (Stage G0)."""
+
+    def test_helpers(self):
+        from analysis.deviation.detectability import decompose, pooled_within_sd, robust_sd, z_needed
+        self.assertAlmostEqual(robust_sd(np.array([0., 1., 2., 3., 4.])), 2. / 1.349)
+        self.assertAlmostEqual(z_needed(0.05, 1), 1.959964, places=5)
+        self.assertGreater(z_needed(0.05, 16), 2.9)
+        self.assertAlmostEqual(decompose(5., 3.), 4.); self.assertEqual(decompose(1., 2.), 0.)
+        v = np.array([[1., 3.], [10., 12.], [np.nan, 5.]])
+        self.assertAlmostEqual(pooled_within_sd(v), np.sqrt(2.))          # var 2 and 2; single-fit subject ignored
+
+    def test_phantom_axis_aligned(self):
+        from analysis.deviation.phantom import measure, tube
+        path = np.c_[np.linspace(0., 20., 41), np.zeros(41), np.zeros(41)]
+        for spacing, tol in (((0.9375, 0.9375, 0.8), 0.6), ((0.25, 0.25, 0.25), 0.3)):
+            sdf, affine, graph = tube(path, np.full(len(path), 2.), spacing, np.zeros(3))
+            m = measure(sdf, affine, graph, path)
+            self.assertLess(abs(m['segmatch_med'] - 2.), tol, spacing)
+            self.assertLess(abs(m['node_allr'] - 2.), tol, spacing)
+        fine = (0.25, 0.25, 0.25)
+        thin = measure(*tube(path, np.full(len(path), 1.), fine, np.zeros(3)), path)
+        base = measure(*tube(path, np.full(len(path), 2.), fine, np.zeros(3)), path)
+        slope = (thin['segmatch_med'] - base['segmatch_med']) / (1. - 2.)
+        self.assertTrue(0.7 <= slope <= 1.3, slope)
+        self.assertTrue(np.isnan(thin['node_absz']))                       # radius_absz rule: graph radius 1 < 1.2
+
+    def test_phantom_curved_and_stenosis(self):
+        from analysis.deviation.phantom import centreline, measure, profile, tube
+        rng = np.random.default_rng(0)
+        path = centreline('curved', rng)
+        self.assertAlmostEqual(np.linalg.norm(np.diff(path, axis=0), axis=1).sum(), 20., delta=0.2)
+        r = profile(path, 2., 'stenosis', 0.3)
+        self.assertAlmostEqual(r.min(), 0.6, places=6); self.assertAlmostEqual(r[0], 2.)
+        m = measure(*tube(path, r, (0.25, 0.25, 0.25), np.zeros(3)), path)
+        self.assertLess(m['segmatch_q25'], m['segmatch_med'])
+
+
+    def test_phantom_summary(self):
+        from analysis.deviation import phantom
+        res = [phantom.placement((2.0, k, s)) for k in ('straight', 'curved') for s in range(2)]
+        with mock.patch.object(phantom, 'RADII', np.array([2.0])):
+            rep = phantom.summarise(res)
+        e = rep['straight/r2.0']['segmatch_med']
+        self.assertLess(abs(e['bias']), 0.6); self.assertIn('slope', e['thin0.5'])
+        self.assertAlmostEqual(e['thin0.5']['true_change_median'], -1.0)
 
 
 class SegmentDiagnosticsTests(unittest.TestCase):
