@@ -2208,10 +2208,11 @@ Facts read from the maps / dump:
   edges have p_e < 0.5 and appear as "present, unexpected" in most subjects.
 - Absent-but-expected edges: 34 in 20 validation subjects (0-4 per subject, mean 1.7; null 300 mean 2.0):
   radius_threshold 13, graph_defect 13, displaced 3, absent 5 (null per subject 0.75 / 0.93 / 0.15 / 0.20). Per edge
-  the validation rates are at or below the null-300 rate except e4 (0.10 vs 0.12, similar).
+  the validation rate is at or below the null-300 rate (e4 0.10 / 0.12, e5 0.40 / 0.53, e6 0.15 / 0.28, e7 0.55 /
+  0.55, e11 0.40 / 0.40, e14 0.10 / 0.15).
 - BH discoveries (population-referenced) in the validation subjects: conn_graph 1 subject (IXI118), none for edge
   presence, conn_mask, radius_absz or radius_allr. Subject-level family min-p flags IXI426 (p 0.047) without any element
   discovery.
 - Examples: thin0.3 on IXI403 edge 4 turns the edge into absent-but-expected with class radius_threshold (all-radius
-  centreline still there, large-vessel centreline gone), no BH discovery; removal gives graph_defect / absent plus
-  radius_absz and radius_allr discoveries at nodes 3, 4 (and 14) and a conn_mask discovery at edge 5.
+  centreline still there, large-vessel centreline gone), no BH discovery; removal gives graph_defect plus radius_absz
+  (nodes 3, 4; null-referenced also 14) and radius_allr (nodes 3, 4) discoveries and a conn_mask discovery at edge 5.
