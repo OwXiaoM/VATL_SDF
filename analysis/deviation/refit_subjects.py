@@ -26,7 +26,12 @@ def set_frame(config, frame, sets, name, manifest=None):
         from vatl_sdf.perturbation import copy_rows
         return copy_rows(manifest)
     if name == 'validation' or name.startswith('valrep'):  # valrep*: replicate refits (other sampler seed)
-        return test_frame(config, frame.subject_id.tolist(), '', len(sets['validation']))
+        # the set's validation IDs in list order (P1 sets: the first 20 YAML val IDs; confirmatory set: IDs 21-55)
+        rows = test_frame(config, frame.subject_id.tolist(), '', None).set_index('subject_id', drop=False)
+        missing = [s for s in sets['validation'] if s not in rows.index]
+        if missing:
+            raise ValueError(f'validation: IDs outside the YAML val split {missing}')
+        return rows.loc[sets['validation']].reset_index(drop=True)
     ids = sets[name]
     if set(ids) - set(frame.subject_id):
         raise ValueError(f'{name}: IDs outside the checkpoint training subjects')

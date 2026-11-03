@@ -2600,3 +2600,55 @@ Facts:
 - Never refitted, evaluated or plotted with any model in this programme: all 35. Strictly unused at the subject level
   (excluding the pooled Phase 0 QC and the old Leonardo training): 31 IDs = 21-55 minus #30, #31, #39, #47.
 Decision: stopped before Step 1 per the user's rule; clean-set choice reported to the user. No job submitted.
+User decision (2026-11-03): use all 35 IDs 21-55 as the confirmatory cohort (Phase 0 QC, Phase 5 rendering and the
+old ablation val saves judged not to affect the P1 design).
+
+### Step 1: PRE-REGISTRATION (written and committed before any confirmatory job; 2026-11-03)
+
+Design: frozen exactly as P1 (code 8a4d279). Changes strictly needed for the run, nothing else:
+- `configs/evaluation/deviation_sets_confirm.json` = deviation_sets_null300.json with validation = YAML val IDs 21-55
+  (35; IXI417-Guys-0939 ... IXI137-HH-1472), selected by YAML position only.
+- `analysis/deviation/refit_subjects.py`: set 'validation' refits the set's validation IDs in list order (it used the
+  first N YAML val IDs, which would have refitted IDs 1-35). Identical selection for the P1 sets (test).
+- Copy seed: new manifest `--seed 20261103` (P1 manifests: seed 0); it enters only the displacement directions.
+- `analysis/deviation/report_confirmatory.py`: regression diff and this report, fixed before the run.
+- vatl_sdf/deviation.py and every statistic, threshold, family rule, null and population: unchanged.
+Fixed settings: checkpoint 21_a4_full_latent6 step 59,760; method learned; primary population r3mm_tau0.1; uniform
+weighting; alpha = q = 0.05; null 300 (the same refits as P1); calibration 50 (same); family = training edges with
+p_e >= 0.5, computed by the code from the training subjects (not hard-coded; P1 gave [4, 5, 6, 7, 11, 14]).
+Refits: same procedure and budget as P1 (align 10 / total 36 / 50 steps / horizon 36). Copies: same kinds and levels
+as P1 (remove, thin 0.5, thin 0.3, stenosis 0.5, stenosis 0.3, displace 2/3/5 mm), targets and eligibility by the
+existing manifest rule (graph atlas 20261101_l6full_graph_atlas, training-derived) on the new subjects' refits.
+No replicate refits (valrep) for this cohort: they enter no criterion.
+Primary statistic: segmatch_q25_apriori. Secondary only: segmatch_med_apriori; centroid (both statistics).
+Primary reference: null-referenced (empirical p against the refitted null 300; elements_bh). Rationale:
+- The null reference is built from refitted subjects, i.e. processed exactly like the queries; in principle it is
+  the correct reference.
+- The population reference compares refitted queries with training subjects under their TRAINED transforms. Its
+  miscalibration has the same mechanism as the trained-vs-refitted mismatch confirmed for offset in D0 (Stage D),
+  which is independent evidence, not a reason constructed after P1.
+- The confirmatory set (never-used IDs + freshly seeded copies) is untouched; freezing the design before running
+  removes the "criterion chosen after seeing the screening result" concern for this run.
+- Stated explicitly: the switch from the population to the null reference was decided AFTER the P1 screening result
+  (P1 failed C3 on the population reference only). The population-referenced rows are reported in full as secondary
+  results and are not dropped.
+Pre-registered criteria (all must pass; learned / r3mm_tau0.1 / uniform / segmatch_q25_apriori / null-referenced):
+  C1  sensitivity (copies with >= 1 BH discovery among their mapped target edges) at thin0.3 >= 0.25
+  C2  sensitivity at stenosis0.3 >= 0.30
+  C3  FPR (subjects with >= 1 BH discovery) <= 0.06 on null_loo AND on the 35 confirmatory validation subjects
+      (35 subjects: at most 2 with a discovery pass, 2/35 = 0.057; 3/35 = 0.086 fails).
+  Note: null_loo is computed on the same null 300 refits, training subjects and code as P1, so its value is fixed
+  in advance (P1: 0.047) and carries no new evidence; the new evidence is the validation FPR and the copy sensitivity.
+Also reported (never judged): population-referenced FPR and sensitivity; all 8 labels; unperturbed baselines;
+per-edge table; segmatch_med_apriori and centroid rows; families; discrete p floor vs q/m; Wilson 95% intervals.
+Decision rule: one run, judged as written by `report_confirmatory.py report`. No re-runs, no criterion changes, no
+further variants on this cohort, whatever the outcome. Technical failures only (a Slurm job that crashes or times
+out) are resubmitted with identical inputs before the deviation run; every copy chunk must finish (no copy dropped).
+Regression (before the confirmatory deviation run is read): the frozen commit rerun on the P1 inputs (same command as
+47781) must reproduce 20261102_deviation_P1 with 0 diffs (deviation.json except output path / sets path / runtime,
+and every array of elements_learned/centroid.npz).
+Jobs (new directory sdf_only/analysis/20261103_confirm/): regression deviation (CPU); 4 validation refit chunks
+(35 IDs); manifest (CPU, afterok refits); copy refits (chunks of 10, count from the manifest; ~1,100 copies,
+~25 GPU-h); reference refits linked by symlinks in 20261103_confirm/refit_reference (null 300 + calibration 50 files
+of 20261101_dev_refit / _null_extra; the old validation refits are not linked); deviation run (CPU, --save-elements,
+--perturbations the new manifest); report.

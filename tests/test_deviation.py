@@ -208,10 +208,33 @@ class DeviationPipelineTests(unittest.TestCase):
         self.assertIn('r3mm_tau0.1', report['populations'])
 
 
+    def test_refit_validation_by_explicit_ids(self):
+        """Confirmatory cohort: the set's validation list (not the first N YAML val IDs) is refitted, in list order."""
+        from analysis.deviation import refit_subjects
+        d = Path(self.temp.name) / 'explicit'
+        d.mkdir()
+        for ids, expect in ((['s7'], ['s7']), (['s7', 's6'], ['s7', 's6']), (['s0'], ValueError), (['s99'], ValueError)):
+            sets = d / 'sets.json'
+            sets.write_text(json.dumps({'null': ['s0'], 'calibration': [], 'validation': ids}))
+            out = d / f'refit_{"_".join(ids)}'
+            argv = ['x', '--checkpoint', str(self.checkpoint_path), '--sets', str(sets), '--set', 'validation', '--output', str(out),
+                    '--align-epochs', '1', '--total-epochs', '1', '--steps-per-epoch', '1', '--device', 'cpu']
+            with mock.patch.object(sys, 'argv', argv):
+                if expect is ValueError:
+                    with self.assertRaises(ValueError):
+                        refit_subjects.main()
+                    continue
+                refit_subjects.main()
+            self.assertEqual(torch.load(out / 'fitted_validation_00.pt', weights_only=False)['subject_ids'], expect)
+
+
 class PerturbationPipelineTests(DeviationPipelineTests):
     cohort = staticmethod(tube_cohort_config)
 
     def test_end_to_end(self):  # covered by DeviationPipelineTests
+        pass
+
+    def test_refit_validation_by_explicit_ids(self):  # covered by DeviationPipelineTests
         pass
 
     def test_perturbation_pipeline(self):
@@ -776,3 +799,55 @@ class PerturbationTests(unittest.TestCase):
         self.assertAlmostEqual(segs[0]['segment_radius_mm'], 2.)
         thin_graph = dict(self.graph, radius=np.full(len(self.graph['radius']), 1.3))
         self.assertFalse(subject_segments(thin_graph, np.zeros(3), np.eye(3), np.zeros(3), pop, [0], 3., 0.5)[0]['eligible'])
+
+
+class ConfirmatoryCohortTests(unittest.TestCase):
+    """P1 confirmatory run: cohort file and validation selection on the real split (reads the YAML / TSV only)."""
+    SPLIT = '/medias/medical/data/Atlas_training/v1/subject_ids_label_t1_fast.yaml'
+    KEY = 'mra_atlas_synthseg_label_t1_fast.subject_ids'
+
+    def setUp(self):
+        from vatl_sdf.config import load_config
+        from vatl_sdf.splits import read_splits
+        self.splits = read_splits(self.SPLIT, self.KEY, {'train': 497, 'val': 55, 'test': 0})
+        self.config = load_config(Path('configs/sdf/21_a4_full_latent6.yaml'))
+        self.confirm = json.loads(Path('configs/evaluation/deviation_sets_confirm.json').read_text())
+        self.p1 = json.loads(Path('configs/evaluation/deviation_sets_null300.json').read_text())
+
+    def test_cohort_file(self):
+        self.assertEqual(self.confirm['validation'], self.splits['val'][20:55])
+        self.assertEqual((self.confirm['validation'][0], self.confirm['validation'][-1]), ('IXI417-Guys-0939', 'IXI137-HH-1472'))
+        self.assertFalse(set(self.confirm['validation']) & set(self.p1['validation']))
+        self.assertFalse(set(self.confirm['validation']) & set(self.splits['train']))
+        for key in set(self.p1) - {'validation', 'note'}:
+            self.assertEqual(self.confirm[key], self.p1[key], key)
+
+    def test_validation_selection(self):
+        from analysis.deviation.refit_subjects import set_frame
+        from analysis.generalization.evaluate_generalization import test_frame
+        frame = pd.DataFrame({'subject_id': self.splits['train']})
+        old = set_frame(self.config, frame, self.p1, 'validation')
+        ref = test_frame(self.config, self.splits['train'], '', 20)            # P1 refits: first 20 YAML val IDs
+        pd.testing.assert_frame_equal(old, ref)
+        new = set_frame(self.config, frame, self.confirm, 'validation')
+        self.assertEqual(new.subject_id.tolist(), self.splits['val'][20:55])
+        self.assertEqual(set_frame(self.config, frame, self.confirm, 'valrep1').subject_id.tolist(), self.splits['val'][20:55])
+
+    def test_copy_labels_match_p1(self):
+        from vatl_sdf.perturbation import copy_label, parse_kinds
+        kinds = ['remove', 'thin', 'displace:3', 'displace:5', 'thin:0.3', 'stenosis:0.5', 'stenosis:0.3', 'displace:2']
+        self.assertEqual(sorted(copy_label(k) for k in parse_kinds(kinds)),
+                         sorted(['thin0', 'thin0.3', 'remove0', 'stenosis0.5', 'stenosis0.3', 'displace2', 'displace3', 'displace5']))
+
+
+class ConfirmatoryReportTests(unittest.TestCase):
+    def test_diff_and_wilson(self):
+        from analysis.deviation.report_confirmatory import diff, wilson
+        a = {'x': [1, float('nan'), {'y': 2}], 'runtime_s': {'total': 1}, 'settings': {'output': 'a', 'q': 0.05}}
+        self.assertEqual(diff(a, json.loads(json.dumps(a))), [])
+        b = {'x': [1, float('nan'), {'y': 3}], 'runtime_s': {'total': 9}, 'settings': {'output': 'b', 'q': 0.05}}
+        self.assertEqual(diff(a, b), [('x', 2, 'y')])                      # output path and runtime ignored
+        self.assertEqual(diff(a, dict(b, z=1, x=a['x'])), [('z',)])
+        lo, hi = wilson(0.0, 35)
+        self.assertEqual(lo, 0.); self.assertAlmostEqual(hi, 0.0989, places=3)
+        self.assertIsNone(wilson(0., 0))
