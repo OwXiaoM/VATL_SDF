@@ -2572,3 +2572,31 @@ against refitted queries by construction.
 Forking paths: chosen from G0 on the same 20 validation subjects and 664 copies; screening only. A confirmatory run on
 validation IDs 21-55 with fresh copies (design frozen at 8a4d279, rows pre-registered) has not been run and needs the
 user's confirmation (GPU refits ~26 GPU-h).
+
+## Stage: P1 confirmatory run (user request 2026-11-03; GPU refits confirmed by the user)
+
+### Step 0: confirmatory cohort check (CPU, login node, read-only; 2026-11-03)
+
+Searched file names of all 26,171 files under `training_outputs/` (sdf_only + old ablations A-E) and
+`Cinema_output/mra_sdf_only/` (incl. claude_pilots), contents of their 20,146 text files (json/csv/tsv/txt/log/md/
+yaml/html), all git-tracked repo files, the P1 dump (train_ids, query_subjects) and the deviation_sets*.json configs,
+for the 35 YAML validation IDs 21-55.
+Facts:
+- Model 21_a4_full_latent6: 497 training IDs, 0 overlap with val IDs 1-55. Deviation queries (984 subjects): 20 val
+  IDs (1-20), 0 of 21-55. deviation_sets*.json: 0 of 21-55. No fitted_*.pt or deviation output mentions 21-55.
+- Used validation IDs: 1-20 in every deviation stage (refits, replicates, perturbed copies, E2 figures); 1-5 also in
+  the generalisation evaluation (gen_align / gen_final / gen_long, patlas held-out). The "first 3/5" N=3/N=5 manifests
+  are IDs 1-5 (selection only).
+- IDs 21-55 were nonetheless touched outside the deviation programme:
+  (a) Phase 0 data QC, jobs 46213 / 46230: per-subject graph statistics, headers, graph-mask correspondence and loops
+      over all 552 subjects (all 35 included; no model; pooled descriptive statistics reported in CONTEXT).
+  (b) Phase 5 rendering, job 46354 (20 subjects across all 552, no model): graph-rendered vs reference SDF Dice /
+      components per subject; includes IXI413-Guys-0955 (val #31) and IXI242-HH-1722 (val #39); rendered NIfTIs saved.
+  (c) User's old MRA+SDF ablation runs A-E (2026-10-25/26; 497 train / 55 val): the trainer saved epoch-4
+      reconstructions of val #1, IXI625-Guys-1098 (val #30) and IXI503-Guys-1021 (val #47) in each run's val/.
+      Not referenced in any analysis in CONTEXT (inspection by anyone not known).
+  (d) The original Leonardo 552-subject run trained on all 55 val IDs (contaminated checkpoints, not on helix, never
+      used in this programme).
+- Never refitted, evaluated or plotted with any model in this programme: all 35. Strictly unused at the subject level
+  (excluding the pooled Phase 0 QC and the old Leonardo training): 31 IDs = 21-55 minus #30, #31, #39, #47.
+Decision: stopped before Step 1 per the user's rule; clean-set choice reported to the user. No job submitted.
