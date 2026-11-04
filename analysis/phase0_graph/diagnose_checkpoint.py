@@ -73,17 +73,26 @@ def normalized(world, affine, shape, config):
     return normalize_world(world, affine, shape, config['data']['world_bbox_mm']).astype(np.float32)
 
 
-def evaluate_subject(model, config, index, row, out, factors, save):
+def averaged_field(model, coords, conditions, config, index):
+    """Subject field averaged over condition vectors (one vector: the plain forward pass)."""
+    total = 0.
+    for condition in conditions:
+        total = total + predict_field(model, coords, condition, config, subject_index=index).astype(np.float64)
+    return (total / len(conditions)).astype(np.float32)
+
+
+def evaluate_subject(model, config, index, row, out, factors, save, conditions=None):
+    """conditions: average the field over these condition vectors (default: the subject's own condition)."""
     tau = config['sdf']['truncation_mm']
     image = nib.load(row.SDF)
     reference = image.get_fdata(dtype=np.float32)
-    condition = condition_vector(config, row.scan_age, row.sex)
+    conditions = [condition_vector(config, row.scan_age, row.sex)] if conditions is None else conditions
     result = {'subject_id': row.subject_id, 'scan_age': float(row.scan_age), 'sex': row.sex}
     for factor in factors:
         vox, world, shape, affine = subject_grid(image.affine, image.shape, factor)
         coords = normalized(world, image.affine, image.shape, config)
         valid = (np.abs(coords) <= 1).all(1).reshape(shape)
-        pred = predict_field(model, coords, condition, config, subject_index=index)
+        pred = averaged_field(model, coords, conditions, config, index)
         pred = pred[:, CHANNELS['vessel_sdf_normalized']].reshape(shape) * tau
         ref = reference if factor == 1 else map_coordinates(reference, vox.T, order=1, mode='nearest').reshape(shape)
         p, r = (pred < 0) & valid, (ref < 0) & valid
@@ -103,8 +112,8 @@ def evaluate_subject(model, config, index, row, out, factors, save):
     mask = reference < 0
     supported, snapped, _ = mask_support(mask, image.affine, graph['pos'])
     radius = graph['radius']
-    pred_nodes = predict_field(model, normalized(snapped, image.affine, image.shape, config), condition, config,
-                               subject_index=index)[:, CHANNELS['vessel_sdf_normalized']] * tau
+    pred_nodes = averaged_field(model, normalized(snapped, image.affine, image.shape, config), conditions, config,
+                                index)[:, CHANNELS['vessel_sdf_normalized']] * tau
     ref_nodes = map_coordinates(reference, world_to_voxel(image.affine, snapped).T, order=1, mode='nearest')
     centreline = {'nodes': len(radius), 'supported': int(supported.sum())}
     for label, lo, hi in RADIUS_BINS:

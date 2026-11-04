@@ -2682,3 +2682,150 @@ cohort; in P1 the two were equal (0.386 vs 0.398). Centroid (family {18} only, s
 0.104, stenosis0.3 0.104. Floor check: m = 6, q / m = 0.0083; no element's population or null floor binds.
 Consequence (fact): all 55 validation IDs have now been used and the YAML test list is empty, so any changed design needs
 a new external cohort for confirmation.
+
+## Stage: age- and sex-conditional atlases (user request 2026-11-04; inference only; descriptive)
+
+Code: vatl_sdf/conditional_atlas.py, analysis/atlas/plot_conditional_atlas.py, slurm/conditional_atlas.sh,
+tests/test_conditional_atlas.py; graph_atlas.build_population gained optional `weights` (default path unchanged).
+Job 49951 (1 L40S, 6 min; code snapshot /users/zhangx/VATL_SDF_frozen/cond_atlas_20261104, not a commit). Output:
+sdf_only/analysis/20261104_conditional_atlas (14 cohort directories, cohorts.tsv, conditional_atlas.json, figures/,
+controls/). Model 21_a4_full_latent6 step 59,760. Cohort = Gaussian age kernel sigma 5 y over subjects of one sex.
+Facts:
+- Regression: uniform weights reproduce the saved r3mm_tau0.1 edge probabilities (max difference 0).
+- Training has 220 M / 277 F, 17 subjects over 75. Nominal age 20 has effective age ~25 (ESS 35-41); 80 has ~75-76
+  (ESS 18 M, 30 F; age80_M flagged low ESS). Other cohorts: ESS 50-106, effective age within ~2 y of nominal.
+- Decoded mean-latent masks stay fragmented: 170-287 components, largest 0.57-0.84; Dice vs occupancy >= 0.25 ~0.60.
+- Occupancy >= 0.25: 12-31 components at 30-70 y (largest 0.53-0.89); 31-126 at nominal 20 / 80.
+- Cohort-rebuilt graphs: 11-74 edges, most at low ESS (age80_M 74), so edge count is not interpretable as anatomy.
+- Decoder condition at a fixed latent (age50_F): M Dice 0.56, age 20 0.49, age 80 0.49 (mean |SDF change| 1.3-1.5 mm).
+- Sex permutation control (controls/sex_perm.py; occupancy >= 0.25; 20 permutations): real M vs F Dice 0.726 / 0.722 /
+  0.696 at 30 / 50 / 70 y, permuted 0.774-0.806 means, every permutation above real.
+- Same permutation on real-graph centreline maps, no decoder output (controls/sex_perm_centreline.py; r 3 mm, threshold
+  0.25, 200 permutations): real M vs F Dice 0.781 / 0.779 / 0.769 at 30 / 50 / 70 y, permuted means 0.857 / 0.849 / 0.836,
+  every permutation above real (p = 1/201, the floor); threshold 0.1 agrees. The gap (0.07-0.08) matches occupancy.
+Conclusion: the M/F difference is not created by decoded vessels alone: it is present in the real graphs in the template
+frame. Its cause is not established. These maps still use the trained transforms.
+Hypothesis (untested): residual head or brain size differences after the regularized affine, rather than vessel-specific
+anatomy. Test: compare the affine log-scale by sex and repeat the permutation after matching or removing global scale.
+
+### Conditional atlases: mean-latent diagnosis and age-averaged fields (user request 2026-11-04; job 50019, 54 min)
+
+Code: vatl_sdf/conditional_atlas_smooth.py, analysis/atlas/plot_mean_latent.py, slurm/conditional_atlas_smooth.sh (snapshot
+VATL_SDF_frozen/cond_atlas_20261104b). Controls: 20261104_conditional_atlas/controls/latent_diagnostic.*, condition_stability.*.
+Facts:
+- SharedGraphEdgeProbability is correct but a 1-voxel skeleton (275 of 6.9M voxels at age30_F); tube version 2,991 voxels.
+- Mean latents are close to zero: L2 norm 0.38 (cohort) and 0.23 (all subjects) vs 2.75 per subject. At the same condition,
+  cohort mean vs zero latent Dice 0.77; all three give similar voxels, components and Dice with occupancy.
+- Decoder age sensitivity at the fixed age30_F latent, Dice vs age 30: 30.5 y 0.90, 31 y 0.82, 32 y 0.76, 35 y 0.67, 40 y 0.65.
+- Fragmentation is not fixed by the iso-level (components 207 / 240 / 264 / 364 at 0 / 0.25 / 0.5 / 1 mm). Most components are
+  small peripheral specks: the main tree in the single forward pass is clean.
+- Averaging the SDF over 24 weighted age quantiles at the fixed mean latent, 14 cohorts: 16-56 components (single pass
+  170-287), Dice with occupancy >= 0.25 0.64-0.71, adjacent-decade female Dice 0.77-0.84 (0.59-0.62), M vs F 0.62-0.68
+  (0.51-0.57). Averaging individual subjects' SDFs instead (24 subjects, age30_F) collapses: 1,256 voxels, Dice 0.24.
+Limits: the age window spans about 12-22 y per cohort, so neighbouring cohorts overlap; sex is not averaged, so sex-input
+instability remains; VesselSoft is a transform of SDF, not a probability, and its diffuse regions are not vessels.
+Hypothesis (untested): the condition input acts partly as a subject key rather than a smooth age / sex effect.
+
+### Conditional atlases: control figures and atlas choice (2026-11-04; reading of existing outputs, no new jobs)
+
+Both figures in `20261104_conditional_atlas/controls/` use cohort age30_F on the 1 mm template grid. Top row: axial maximum
+projection; bottom row: sagittal maximum projection. Axes are voxel indices.
+
+`condition_stability.png` shows `sigmoid(-SDF)` (0.5 is the vessel surface). Dice is against VesselOccupancy >= 0.25.
+
+| column | method | voxels | components | Dice |
+|---|---|---:|---:|---:|
+| left | mean latent, single forward pass at age 30, F | 12,715 | 207 | 0.601 |
+| middle | mean latent, SDF averaged over 24 weighted age quantiles | 10,077 | 28 | 0.686 |
+| right | SDF average of the 24 highest-weighted subjects, own latent and age | 1,256 | 10 | 0.243 |
+
+`latent_diagnostic.png` shows the binary mask `SDF < 0`. Columns 1-3 decode at age 30, F; columns 4-5 at the subject's own age, F.
+"Core inside" is the fraction of VesselOccupancy >= 0.5 inside the mask.
+
+| column | latent | L2 norm | components | largest fraction | core inside | Dice occ25 |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | age30_F cohort mean | 0.38 | 207 | 0.59 | 0.96 | 0.601 |
+| 2 | all-subject mean | 0.23 | 230 | 0.59 | 0.96 | 0.601 |
+| 3 | zero | 0 | 211 | 0.62 | 0.97 | 0.609 |
+| 4 | IXI306-IOP-0867 own | 2.80 | 261 | 0.79 | 0.69 | 0.327 |
+| 5 | IXI025-Guys-0852 own | 2.79 | 160 | 0.76 | 0.66 | 0.265 |
+
+Reading: columns 1-3 look alike, and only the subjects' own latents show long continuous peripheral vessels. The low Dice in
+columns 4-5 measures disagreement with the population occupancy, not poor decoding.
+
+Atlas choice, on proxy measures only (there is no ground-truth atlas):
+- Single vessel template: age-averaged field, `<cohort>/mean_latent_field/VesselSDF_atlas.nii.gz`, `VesselMask_atlas.nii.gz`
+  and `VesselSoft.nii.gz`.
+- Population probability: `VesselOccupancy_smooth1mm.nii.gz`, which is built from per-subject decodings and keeps variability.
+- Topology: `*GraphEdgeProbability_tube1.5mm_*.nii.gz`.
+Recommended pairing: the SDF atlas for shape and the smoothed occupancy for population probability.
+Limits: occupancy comes from the same model, so Dice with it is not anatomical accuracy; fewer components is not better anatomy,
+since averaging also removes real small vessels; age specificity drops (age20_M samples span 20.07-32.84 y); these atlases use
+sigma 5 y, same-sex weighting, not the CINeMA scheme; small cohorts are less stable (age80_M ESS 18).
+
+## Stage: mean-latent baseline on unseen subjects (user request 2026-11-04; inference only; descriptive)
+
+Question: how much does the individually fitted latent add beyond a latent generated only from age and sex? Model
+21_a4_full_latent6, step 59,760, frozen; no training, no latent optimization for the baselines. Jobs 50062 (`gen5`, IDs 1-5,
+generalization fit) and 50063-50068 (`val55`, 6 shards), all COMPLETED, run from the frozen copy
+`/users/zhangx/VATL_SDF_frozen/mean_latent_baseline_20261104` (rsync of the working tree on base 6eeaebd, not a commit).
+Output: `analysis/20261104_mean_latent_baseline/` (`per_subject.tsv`, `summary.json`, shards). Code:
+`analysis/generalization/mean_latent_baseline.py`, `slurm/mean_latent_baseline.sh`, `tests/test_mean_latent_baseline.py`;
+`diagnose_checkpoint.evaluate_subject` gained an optional `conditions` argument (default path unchanged).
+Variants: `fitted`; `cinema_single` (sigma 2.5 y, closest 100, both sexes); `samesex_single` (sigma 5 y, same sex);
+`cinema_age24` / `samesex_age24` (SDF averaged over 24 weighted age quantiles); `zero`. All use the subject's own condition
+(age24: own sex, sampled ages) and fitted transform, native grid. Baseline latents are written into the subject's latent row,
+because `latent_override` skips the subject transform.
+Checks: stored fitted Dice reproduced exactly (`regression_max_abs_dice_diff` 0.0, gen5 median 0.7566); 360 rows, no missing values.
+
+Medians [IQR], IDs 1-55 (n=55; IDs 1-5 use the deviation fit):
+
+| variant | Dice | band MAE mm | volume ratio | component ratio | centreline inside | latent L2 |
+|---|---|---|---|---|---|---|
+| fitted | 0.769 [0.750, 0.783] | 1.071 | 1.367 | 2.000 | 0.961 | 3.382 |
+| cinema_single | 0.181 [0.165, 0.206] | 1.518 | 0.895 | 2.273 | 0.083 | 0.368 |
+| samesex_single | 0.181 [0.166, 0.205] | 1.513 | 0.896 | 2.237 | 0.084 | 0.374 |
+| cinema_age24 | 0.194 [0.177, 0.212] | 1.483 | 0.705 | 0.600 | 0.074 | 0.368 |
+| samesex_age24 | 0.194 [0.175, 0.216] | 1.464 | 0.667 | 0.357 | 0.072 | 0.374 |
+| zero | 0.185 [0.168, 0.210] | 1.522 | 0.859 | 1.971 | 0.083 | 0 |
+
+Group medians, fitted vs cinema_single Dice: IDs 1-5 generalization fit 0.757 vs 0.178; IDs 1-5 deviation fit 0.758 vs 0.176;
+IDs 1-20 0.759 vs 0.179; IDs 21-55 0.775 vs 0.182. Paired fitted minus baseline, IDs 1-55: Dice +0.574 to +0.589, fitted higher
+in 55/55 against every baseline; band MAE -0.395 to -0.447, fitted lower in 55/55; centreline inside +0.87 to +0.89, 55/55.
+Highest baseline Dice for any subject 0.317; lowest fitted Dice 0.696. Paired baseline contrasts, Dice: cinema_single minus zero
+-0.003 (higher in 13/55); cinema_age24 minus cinema_single +0.009 (54/55); samesex_single minus cinema_single +0.001 (34/55).
+Age averaging lowers volume ratio by 0.18 and centreline inside by 0.009, and pushes component ratio below 1.
+
+Caveats: (1) the transform was fitted jointly with the fitted latent, so the baselines are not fully independent of the subject,
+and that transform is tuned for the fitted latent, not for the baselines. (2) Fitted scores are measured on the same segmentation
+the latent was fitted to, so the gap is fit to observed data, not prediction of unobserved anatomy. (3) All 55 validation IDs
+were already used: descriptive only, not confirmatory. (4) IDs 1-5 have two fits, both reported. (5) Fitted latents have a larger
+norm (3.38) than training latents (median 2.75). (6) Extreme ages have low ESS (minimum 7.1 for cinema weighting).
+The failed P1 conclusion is unchanged.
+Hypotheses (untested): the latent carries nearly all subject-specific vessel position; part of the baseline deficit may be
+misalignment that the fitted latent absorbs but the baselines cannot. A training-subject control (mean latent with the trained
+transform) or a transform refit with the latent held at the mean would separate these.
+
+### Mean-latent baseline: paired differences and report summary
+
+Paired fitted minus baseline, IDs 1-55, median of per-subject differences:
+
+| baseline | Dice | band MAE mm | volume ratio | component ratio | centreline inside | latent L2 |
+|---|---:|---:|---:|---:|---:|---:|
+| cinema_single | +0.583 | -0.443 | +0.486 | -0.308 | +0.873 | +2.992 |
+| samesex_single | +0.589 | -0.447 | +0.478 | -0.296 | +0.872 | +2.987 |
+| cinema_age24 | +0.574 | -0.407 | +0.671 | +1.440 | +0.882 | +2.992 |
+| samesex_age24 | +0.578 | -0.395 | +0.702 | +1.650 | +0.885 | +2.987 |
+| zero | +0.581 | -0.447 | +0.507 | +0.070 | +0.874 | +3.382 |
+
+Same differences, IDs 1-5 with the generalization fit (n=5), Dice: cinema_single +0.529, samesex_single +0.529, cinema_age24
++0.520, samesex_age24 +0.519, zero +0.525. Fitted Dice was higher in 5/5 for each.
+
+Summary of measured facts: the fitted latent gives Dice 0.769 against 0.18-0.19 for latents generated from age and sex only.
+Age- and sex-weighted mean latents are no better than the zero latent with the same condition. The two weightings are
+practically equivalent. Age averaging adds about 0.01 Dice but makes the result sparser than the reference (volume ratio about
+0.7, component ratio below 1). Fitted volume is overestimated (1.37), baseline volume is underestimated (0.67-0.90), and fitted
+component ratio remains 2.0.
+
+Proposed next control (not run; needs GPU and user confirmation): hold the latent at the mean and refit only the transform, to
+measure how much Dice is recovered and to remove the dependence on the transform fitted with the latent.

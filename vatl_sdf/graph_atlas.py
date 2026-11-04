@@ -160,10 +160,13 @@ def aggregate(records):
     return out
 
 
-def build_population(clouds, shape, affine, radius_mm, tau, edge_cover, min_skeleton_voxels, cmap=None):
+def build_population(clouds, shape, affine, radius_mm, tau, edge_cover, min_skeleton_voxels, cmap=None, weights=None):
     """Population graph from subject centreline clouds (template mm): centreline probability c_r (fraction of
     subjects within radius_mm), mask c_r >= tau, skeleton (components >= min_skeleton_voxels), skeleton graph,
-    per-subject edge presence (subjects, edges) and edge probability."""
+    per-subject edge presence (subjects, edges) and edge probability. weights (normalized, one per subject) make the
+    edge probability a weighted mean; the matching weighted cmap must then be supplied."""
+    if weights is not None and cmap is None:
+        raise ValueError('weights need the matching weighted cmap')
     if cmap is None:
         cmap = np.zeros(shape)
         for cloud in clouds:
@@ -180,7 +183,7 @@ def build_population(clouds, shape, affine, radius_mm, tau, edge_cover, min_skel
     return {'cmap': cmap, 'mask': mask, 'skeleton': skeleton, 'nodes_vox': nodes,
             'nodes_mm': nib.affines.apply_affine(affine, nodes) if len(nodes) else nodes,
             'edges': [(int(a_), int(b_)) for a_, b_, _ in edges], 'edge_points_mm': points, 'presence': y,
-            'edge_probability': y.mean(0) if len(edges) else np.zeros(0),
+            'edge_probability': (y.mean(0) if weights is None else weights @ y) if len(edges) else np.zeros(0),
             'edge_length_mm': [float(np.linalg.norm(np.diff(pt, axis=0), axis=1).sum()) for pt in points],
             'radius_mm': radius_mm, 'tau': tau, 'edge_cover': edge_cover, 'subjects': len(clouds)}
 
