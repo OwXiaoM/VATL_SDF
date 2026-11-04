@@ -2657,3 +2657,28 @@ Jobs (new directory sdf_only/analysis/20261103_confirm/): regression deviation (
 ~25 GPU-h); reference refits linked by symlinks in 20261103_confirm/refit_reference (null 300 + calibration 50 files
 of 20261101_dev_refit / _null_extra; the old validation refits are not linked); deviation run (CPU, --save-elements,
 --perturbations the new manifest); report.
+
+### Step 2: CONFIRMATORY RESULT (job 48571, read 2026-11-04 after regression 48439 = 0 diffs)
+
+Report: 20261103_confirm/confirmatory_report.json (`report_confirmatory.py report`, frozen rule, judged as written). All
+1,072 copies scored (134 per label, 35 subjects); validation n = 35. Families as in P1 (learned r3mm {4, 5, 6, 7, 11, 14};
+learned r2mm empty; centroid r3mm {18}).
+Pre-registered criteria (learned / r3mm_tau0.1 / uniform / segmatch_q25_apriori / null-referenced): OVERALL FAIL.
+  C1 FAIL: thin0.3 0.246 = 33/134 (needed >= 0.25, i.e. 34/134); Wilson 95% 0.181-0.326.
+  C2 FAIL: stenosis0.3 0.299 = 40/134 (needed >= 0.30, i.e. 41/134); Wilson 95% 0.228-0.381.
+  C3 PASS: FPR null_loo 0.047 (fixed in advance, no new evidence), validation 0.029 (1/35; Wilson 0.005-0.145).
+Each failed criterion missed by one copy. Per the decision rule: no re-run, criterion change or further variant on this
+cohort. Wilson intervals are descriptive and too narrow (copies are clustered within 35 subjects).
+Sensitivity, primary row, null / population (P1 screening null in brackets; unperturbed baseline 0 / 0): thin0.5 0.067 / 0.097
+(0.084); thin0.3 0.246 / 0.328 (0.289); removal 0.806 / 0.813 (0.916); stenosis0.5 0.045 / 0.060 (0.096); stenosis0.3 0.299 /
+0.291 (0.398); displace2 0.097 / 0.097 (0.072); displace3 0.157 / 0.164 (0.193); displace5 0.291 / 0.284 (0.349). Seven of
+eight labels are lower than in screening. Population-referenced FPR: null 0.087 (> 0.06, as in P1), validation 0.029.
+Per edge (null; p_e; copies): thin0.3 e4 0.32, e5 0.30, e6 0.17, e7 0.29, e11 0.26, e14 0.19; stenosis0.3 e4 (0.92; 31) 0.39,
+e5 (0.57; 10) 0, e6 (0.77; 24) 0.92, e7 (0.52; 14) 0, e11 (0.62; 23) 0.13, e14 (0.91; 32) 0.09: 22 of the 40 stenosis0.3
+detections are edge 6 (other edges 18/110 = 0.16), the same pattern as P1; removal 0.70-0.93 on every edge.
+Secondary, never judged: segmatch_med_apriori null-referenced thin0.3 0.239, stenosis0.5 0.172, stenosis0.3 0.425, removal
+0.761; FPR null 0.050, validation 0.057 (2/35), baseline 0.015. Numerically above the primary on stenosis but post hoc on this
+cohort; in P1 the two were equal (0.386 vs 0.398). Centroid (family {18} only, so not like-for-like): removal 0.149, thin0.3
+0.104, stenosis0.3 0.104. Floor check: m = 6, q / m = 0.0083; no element's population or null floor binds.
+Consequence (fact): all 55 validation IDs have now been used and the YAML test list is empty, so any changed design needs
+a new external cohort for confirmation.
